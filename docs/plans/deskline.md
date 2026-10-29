@@ -1,0 +1,1233 @@
+# Deskline — Implementation Plan
+
+> **Status:** **Approved** 2026-10-29 — build not yet started.
+> **Date:** 2026-10-29 (approved same day)
+> **Author:** Claude Opus 5 (plan-then-build artefact)
+
+Deskline is a multi-tenant SaaS support desk. Inside each customer org (a tenant), agents
+triage and resolve customer tickets, assisted by an AI that drafts customer replies and
+auto-classifies incoming tickets.
+
+This plan covers **seven dimensions**:
+
+| #   | Dimension              | Section                                             |
+| --- | ---------------------- | --------------------------------------------------- |
+| 1   | Domain & data model    | [§2](#2-dimension-1--domain--data-model)            |
+| 2   | Security perimeter     | [§3](#3-dimension-2--security-perimeter)            |
+| 3   | AI surface             | [§4](#4-dimension-3--ai-surface)                    |
+| 4   | Observability & cost   | [§5](#5-dimension-4--observability--cost-telemetry) |
+| 5   | UI / UX                | [§6](#6-dimension-5--ui--ux)                        |
+| 6   | Bootstrap & ops        | [§7](#7-dimension-6--bootstrap--ops)                |
+| 7   | Verification & grading | [§8](#8-dimension-7--verification--grading)         |
+
+---
+
+## 1. Decisions, scope boundaries and known gaps
+
+### 1.1 Decisions taken (confirmed)
+
+| #   | Decision                                                                                                                                                                                    | Rationale                                                                                                                                                                                                                                                                        |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| D1  | **RBAC via predicate rules + a resolved `Membership`.** Routes resolve the caller's membership first, then pass `{ role }` as the `resource` argument to `defineAbilities` predicate rules. | `aiden-auth` populates `session.user.roles` from the **global** `Role[]` many-to-many, not from per-org `Membership.role`. A `RoleRule` (`{ roles: [...] }`) would therefore grant a role across every tenant. Predicates keep the role per-org and always fresh (no stale JWT). |
+| D2  | **Ticket keeps `ownerId`; ownership is projected at the call site** through a thin local assertion wrapper.                                                                                 | `assertOwnership` is hard-typed to `{ userId: string }` and reads `.userId` at runtime. Domain naming is preserved; see [§3.5](#35-the-assertownership-field-gap) for the wrapper that restores TypeScript narrowing.                                                            |
+| D3  | **Default AI provider: Anthropic** (`@anthropic-ai/sdk`, `claude-haiku-4-5`).                                                                                                               | Supports both required surfaces — SSE streaming for Draft reply, and `responseSchema` for triage. Switchable with one line in `aiden.config.ts` ([§4.1](#41-provider-agnostic-wiring)).                                                                                          |
+| D4  | **One active org per user in v1.** A user holds exactly one `Membership`, so "the caller's org" is unambiguous everywhere.                                                                  | Multi-org adds an active-org resolver, a switcher, and a stale-active-org failure mode to every route — none of which exercises tenant isolation any harder than two orgs with disjoint users already do. See [§1.2](#12-scope-boundary--one-active-org-per-user-d4).            |
+
+### 1.2 Scope boundary — one active org per user (D4)
+
+A user belongs to exactly **one** org in v1. This is a scope boundary, not a modelling
+limitation: the schema is already shaped for multi-org, and only the resolver is narrowed.
+
+**What this fixes:**
+
+- `Membership` carries `@@unique([userId, orgId])` — the natural many-to-many shape. Nothing
+  about the schema assumes a single membership, so **multi-org needs no migration**.
+- `requireMembership()` resolves the caller's single membership with
+  `findFirst({ where: { userId } })` and is the **only** place the assumption lives
+  ([§3.6](#36-membership-resolver-srclibmembershipts)).
+- The seed gives every user exactly one membership, across two orgs with disjoint users
+  ([§2.7](#27-seed-prismaseedts)).
+
+**What it does not weaken.** Tenant isolation is enforced by the `orgId` in every `where`
+clause and by `orgId` being absent from every Zod schema
+([§3.8](#38-zod-schemas-srclibvalidationticketts)) — neither depends on how many orgs a user
+may belong to. The cross-tenant 404 matrix ([§8.2](#82-security-smoke-suite)) is unaffected.
+
+**Upgrade path to multi-org.** Change `requireMembership()` to read an active-org id (cookie
+or path segment), verify the caller holds a membership in it, and add an org switcher to the
+dashboard header. No route, schema, ability rule, or smoke row changes — every route already
+takes its `orgId` from the resolver rather than deriving it independently. Keeping that
+single choke point is the reason the resolver is a function rather than an inlined query.
+
+### 1.3 Known gaps in the AIDEN SDK (to raise upstream, per CLAUDE.md)
+
+These are real limitations found by reading the installed packages. Each has an interim
+approach so the build is not blocked, and each should be filed so the fix ships to every
+app via `npx aiden upgrade`.
+
+| #   | Gap                                                                                                                                                                                                                                                                                                                                                                                                                                           | Interim approach                                                                                                                                                                                                                                                                                                                                                                                       |
+| --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| G1  | `assertOwnership<T extends { userId: string }>` hard-codes the owner field name. No `{ field }` option.                                                                                                                                                                                                                                                                                                                                       | Local assertion wrapper `assertTicketOwner` that delegates to `assertOwnership` ([§3.5](#35-the-assertownership-field-gap)). **Proposed SDK fix:** `assertOwnership(row, userId, { field?: keyof T })`.                                                                                                                                                                                                |
+| G2  | `AuditListFilters` exposes only `userId` / `event` / `from` / `to` — **no tenant filter** — and `AuditLog` has no `orgId` column. An org-scoped audit viewer is impossible through `auditReader`.                                                                                                                                                                                                                                             | Read `prisma.auditLog` directly with `actorId: { in: memberIds }` ([§5.3](#53-org-scoped-audit-trail)). **Proposed SDK fix:** add `actorIds?: string[]` to `AuditListFilters`, and/or an optional `tenantId` column on the shipped fragment.                                                                                                                                                           |
+| G3  | `AIUsageRecord` is a closed shape (`provider, model, *Tokens, costUSD, latencyMs, requestId?, userId?`). No passthrough for app metadata, so the sink cannot know the `orgId` or which feature spent the money.                                                                                                                                                                                                                               | `AsyncLocalStorage` call-context set by a `withAICall()` wrapper; the sink reads it ([§5.2](#52-ai-cost-telemetry)). **Proposed SDK fix:** `recordAIUsage({ ..., metadata?: Record<string, unknown> })`.                                                                                                                                                                                               |
+| G4  | CLAUDE.md mandates invoking the **`/frontend-design` skill** before any UI code, but **no such command exists** in `.claude/commands/` (present: `security-review`, `create-prd-tasks`, `review-fixes`, `validate`, `ship`, `create-feature`). Nothing in the repo defines what the skill would do.                                                                                                                                           | **Resolved — no skill is authored.** The available documentation is the authority: CLAUDE.md's Pre-Flight table plus `docs/design-system/*`. §6.1 turns those into the explicit, repeatable pre-flight the skill would have encoded, and that read is the binding gate. **Raise upstream:** correct the CLAUDE.md reference, or ship the skill in the starter so the step is reproducible across apps. |
+| G5  | `/api/dev/impersonate` is a no-op stub — it validates a role and echoes it back without mutating the session. It cannot be used to switch personas in a test harness.                                                                                                                                                                                                                                                                         | The security smoke suite authenticates each persona for real through the credentials provider and keeps a cookie jar per persona ([§8.2](#82-security-smoke-suite)).                                                                                                                                                                                                                                   |
+| G6  | **`.claude/hooks/check-design-system.sh` Rule 2 contradicts the design system.** The hook is live (PostToolUse on Edit/Write) and blocks the `rounded-lg` / `xl` / `2xl` / `3xl` scale with "Only avatars get rounded-full" — but CLAUDE.md:103 and `00-overview.md`:31 **mandate** `rounded-lg` for buttons/badges, `rounded-xl` for cards and `rounded-2xl` for modals. Every DS-correct Card, Button and Dialog would be blocked on write. | Narrow Rule 2 to what the DS actually forbids — radii **above** `rounded-2xl` (`rounded-3xl` and arbitrary values) — in Phase 0, before any UI work. One regex. Hook Rules 1 and 3 are correct and stay.                                                                                                                                                                                               |
+
+### 1.4 Pre-existing breakage to clear first (Phase 0)
+
+`npx tsc --noEmit` currently fails with **7 errors** on a clean tree — these predate this
+work and must be cleared before anything is added, or the build's own validation signal is
+meaningless.
+
+```
+src/app/(marketing)/layout.tsx(20,9): TS4104  readonly [] not assignable to SiteFooterLink[]
+src/lib/ai.ts(19,35)  TS2339  Property 'model' does not exist on type 'false'   (×6, one per provider)
+```
+
+Cause (corroborated by `.claude/progress.log`, 2026-10-29 14:28 / 14:42): `aiden.config.ts`
+was reshaped so `ai.providers.<name>` is a **boolean** (to satisfy the `aiden-cli` 2.0.1
+config schema), but the companion `ai.models` map was never added and `src/lib/ai.ts` still
+reads `providerModels.<name>.model`.
+
+**Fix:** add an `ai.models` map to `aiden.config.ts`, point `src/lib/ai.ts` at it, and spread
+`app.footerLinks` into a mutable array at the call site. No SDK change.
+
+---
+
+## 2. Dimension 1 — Domain & data model
+
+### 2.1 Frozen resource family
+
+Exactly five record types. **No other resources.**
+
+| Model        | Origin                                         | Purpose                                              |
+| ------------ | ---------------------------------------------- | ---------------------------------------------------- |
+| `Org`        | new fragment                                   | The tenant.                                          |
+| `Membership` | new fragment                                   | Joins `User` ↔ `Org`, carries the org-scoped `role`. |
+| `Ticket`     | new fragment                                   | The support ticket; carries `orgId` + `ownerId`.     |
+| `AuditLog`   | AIDEN-shipped (`aiden-db/schema/audit.prisma`) | Audit trail. Not redefined.                          |
+| `AIUsage`    | new fragment                                   | Per-call token / cost telemetry.                     |
+
+### 2.2 Fragment layout
+
+Schema changes go in **fragments only**. `prisma/schema.prisma` is composed by
+`aiden-db-merge-schema` and must never be hand-edited.
+
+```
+prisma/fragments/
+├── _base.prisma      # existing — datasource + generator
+├── user.prisma       # EDIT — add back-relations
+├── org.prisma        # NEW — Org, Membership, MembershipRole
+├── ticket.prisma     # NEW — Ticket + status/priority/sentiment enums
+└── ai-usage.prisma   # NEW — AIUsage
+```
+
+### 2.3 `user.prisma` — back-relations to add
+
+Prisma requires the consumer-owned `User` to declare every back-relation it participates in.
+Append to the existing model (leave the AIDEN-required `accounts` / `sessions` / `roles` lines
+untouched):
+
+```prisma
+  memberships     Membership[]
+  ticketsOwned    Ticket[]     @relation("TicketOwner")
+  ticketsAssigned Ticket[]     @relation("TicketAssignee")
+```
+
+### 2.4 `org.prisma`
+
+```prisma
+enum MembershipRole {
+  owner
+  agent
+  viewer
+}
+
+model Org {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  memberships Membership[]
+  tickets     Ticket[]
+  aiUsage     AIUsage[]
+
+  @@map("orgs")
+}
+
+model Membership {
+  id        String         @id @default(cuid())
+  userId    String         @map("user_id")
+  orgId     String         @map("org_id")
+  role      MembershipRole @default(viewer)
+  createdAt DateTime       @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  org  Org  @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, orgId])
+  @@index([orgId])
+  @@map("memberships")
+}
+```
+
+Exactly three roles, as a Postgres enum — the database itself rejects a fourth. This is the
+cheapest possible enforcement of the "no more than three roles" constraint.
+
+### 2.5 `ticket.prisma`
+
+```prisma
+enum TicketStatus {
+  open
+  pending
+  resolved
+  closed
+}
+
+enum TicketPriority {
+  low
+  medium
+  high
+  urgent
+}
+
+enum TicketSentiment {
+  positive
+  neutral
+  negative
+}
+
+model Ticket {
+  id         String           @id @default(cuid())
+  orgId      String           @map("org_id")
+  ownerId    String           @map("owner_id")
+  assigneeId String?          @map("assignee_id")
+
+  subject    String
+  body       String           @db.Text
+  status     TicketStatus     @default(open)
+
+  // AI triage output — written by ai.complete({ responseSchema }).
+  priority   TicketPriority   @default(medium)
+  category   String?
+  sentiment  TicketSentiment?
+  triagedAt  DateTime?        @map("triaged_at")
+
+  closedAt   DateTime?        @map("closed_at")
+  createdAt  DateTime         @default(now()) @map("created_at")
+  updatedAt  DateTime         @updatedAt @map("updated_at")
+
+  org      Org   @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  owner    User  @relation("TicketOwner", fields: [ownerId], references: [id])
+  assignee User? @relation("TicketAssignee", fields: [assigneeId], references: [id])
+
+  @@index([orgId, status])
+  @@index([orgId, ownerId])
+  @@index([orgId, assigneeId])
+  @@map("tickets")
+}
+```
+
+Every index is **compound on `orgId` first** — tenant isolation is an index-level property, not
+just a `where`-clause convention.
+
+### 2.6 `ai-usage.prisma`
+
+```prisma
+model AIUsage {
+  id        String   @id @default(cuid())
+  orgId     String?  @map("org_id")
+  userId    String?  @map("user_id")
+  requestId String?  @map("request_id")
+  /// "ticket.draft" | "ticket.triage" — which feature spent the money.
+  feature   String?
+
+  provider         String
+  model            String
+  promptTokens     Int      @map("prompt_tokens")
+  completionTokens Int      @map("completion_tokens")
+  totalTokens      Int      @map("total_tokens")
+  costUSD          Decimal  @map("cost_usd") @db.Decimal(12, 6)
+  latencyMs        Int      @map("latency_ms")
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  org Org? @relation(fields: [orgId], references: [id], onDelete: SetNull)
+
+  @@index([orgId, createdAt])
+  @@map("ai_usage")
+}
+```
+
+`costUSD` is `Decimal(12,6)`, not `Float` — summing float money across thousands of calls
+drifts. `orgId` / `userId` are nullable so a usage row survives a deleted org and so the sink
+never throws when it fires outside a request context.
+
+### 2.7 Seed (`prisma/seed.ts`)
+
+Extend the existing idempotent seed (keep its current role/permission upsert for the AIDEN
+global RBAC tables, which `aiden-auth` still reads).
+
+**Two orgs with disjoint users** — this is what makes cross-tenant 404s demonstrable:
+
+| Org            | Slug     | Users                                                                             |
+| -------------- | -------- | --------------------------------------------------------------------------------- |
+| Acme Support   | `acme`   | `owner@acme.test` (owner), `agent@acme.test` (agent), `viewer@acme.test` (viewer) |
+| Globex Support | `globex` | `owner@globex.test` (owner), `agent@globex.test` (agent)                          |
+
+Plus a second Acme agent, `agent2@acme.test`, so "agent cannot touch **another agent's**
+ticket **within the same org**" (404) is testable and distinct from the cross-tenant case.
+
+Tickets: ~4 per org, with a mix of `ownerId` / `assigneeId` so every row-visibility branch has
+a fixture. All seeded passwords are a single shared dev constant hashed with bcryptjs cost 12,
+recorded in `.env.example` — never printed to the console and never a real credential.
+
+### 2.8 Migration
+
+```bash
+npm run prisma:merge      # fragments → prisma/schema.prisma
+npm run db:migrate        # prisma migrate dev --name deskline_core
+npm run db:seed
+```
+
+---
+
+## 3. Dimension 2 — Security perimeter
+
+### 3.1 The two-axis model
+
+Deskline's access rules fall on two axes, and they produce **different status codes**. Getting
+this wrong is the single most likely defect, so it is stated before any code:
+
+| Axis           | Question                                              | Failure | Mechanism                                         |
+| -------------- | ----------------------------------------------------- | ------- | ------------------------------------------------- |
+| **Capability** | Is this _role_ allowed to perform this _verb_ at all? | **403** | `assertCan` → `AbilityError` (status 403)         |
+| **Visibility** | Is this _row_ one this caller may see at all?         | **404** | `assertOwnership` → `OwnershipError` (status 404) |
+
+A viewer attempting a mutation is a _capability_ failure — they are a legitimate member of the
+tenant, so telling them "forbidden" leaks nothing: **403**.
+
+Any attempt to reach a row outside the caller's visibility — another org's ticket, or (for an
+agent) another agent's ticket — is a _visibility_ failure and must be **404**, so "doesn't
+exist" and "not yours" are indistinguishable. **Cross-tenant access is always 404, never 403.**
+
+### 3.2 Canonical request perimeter
+
+Every `src/app/api/**/route.ts` runs these steps in this order. No step may be reordered or
+skipped.
+
+```ts
+export const PATCH = withAuth<RouteParams>(async (req, { session, params }) => {
+  // 1. withAuth            → 401 if unauthenticated (wrapper, already applied)
+  const { id } = await params;
+
+  // 2. parseRequest        → 400 on an invalid body (Zod)
+  const body = await parseRequest(req, UpdateTicketBody);
+
+  // 3. requireMembership   → 403 if the caller belongs to no org
+  const { orgId, role } = await requireMembership(session.user.id);
+
+  // 4. assertCan           → 403 if this ROLE may not perform this VERB
+  assertCan(abilities, session, "ticket.update", { role });
+
+  // 5. org-scoped query    → the tenant filter is in the WHERE clause, always
+  const ticket = await prisma.ticket.findFirst({ where: { id, orgId } });
+
+  // 6. row visibility      → 404 if this row is not visible to this caller
+  assertTicketVisible(ticket, { role, userId: session.user.id });
+
+  // 7. mutate + audit
+  const updated = await prisma.ticket.update({ where: { id: ticket.id }, data: { ... } });
+  auditLog({ event: "ticket.updated", resourceId: updated.id, metadata: { orgId } });
+
+  // 8. respond
+  return NextResponse.json({ ticket: updated });
+});
+```
+
+Steps 5 and 6 together are the IDOR guard. Step 5 alone already makes a cross-tenant id return
+`null`; step 6 turns that `null` into a 404 **and** emits the SDK's
+`security.ownership_failed` audit event.
+
+### 3.3 Row visibility matrix
+
+| Role     | Reads                                        | Mutates                   |
+| -------- | -------------------------------------------- | ------------------------- |
+| `owner`  | Every ticket in their org                    | Every ticket in their org |
+| `agent`  | Only tickets they own **or** are assigned to | Same                      |
+| `viewer` | Every ticket in their org                    | **Nothing** (403)         |
+
+Implemented once, in `src/lib/tickets.ts`, so no route re-derives it:
+
+```ts
+/** The WHERE fragment that scopes a list query to what this caller may see. */
+export function ticketVisibilityWhere(ctx: MembershipContext) {
+  if (ctx.role === "agent") {
+    return {
+      orgId: ctx.orgId,
+      OR: [{ ownerId: ctx.userId }, { assigneeId: ctx.userId }],
+    };
+  }
+  return { orgId: ctx.orgId }; // owner + viewer see the whole org
+}
+```
+
+The agent restriction lives in the **`where` clause**, not in a post-fetch filter — an agent's
+list query never loads another agent's rows into memory in the first place.
+
+### 3.4 Abilities (`src/lib/abilities.ts`)
+
+All rules are **predicates** taking the resolved membership as the `resource` argument (D1).
+The existing `audit.read` / `users.manage` global rules stay for the starter's own admin pages
+until those are replaced; the new org-scoped rules are additive.
+
+```ts
+type RoleCtx = { role: MembershipRole };
+
+const canWrite = (_s: SecuritySession, c?: RoleCtx) =>
+  c?.role === "owner" || c?.role === "agent";
+
+const isOwner = (_s: SecuritySession, c?: RoleCtx) => c?.role === "owner";
+
+export const abilities = defineAbilities({
+  rules: {
+    // Any member of the org may read; WHICH rows is decided by visibility (404), not here.
+    "ticket.read": (_s, c?: RoleCtx) => Boolean(c?.role),
+    "ticket.create": canWrite,
+    "ticket.update": canWrite,
+    "ticket.close": canWrite,
+
+    // The one AI gate. A viewer invoking AI is a capability failure → 403.
+    "ai.invoke": canWrite,
+
+    // Owner-only admin surface.
+    "org.members.manage": isOwner,
+    "org.audit.read": isOwner,
+    "org.usage.read": isOwner,
+  },
+});
+```
+
+Note what is **not** here: no CASL conditions, no fourth role, no per-field rules. Eight
+actions, three roles, two predicate shapes.
+
+### 3.5 The `assertOwnership` field gap
+
+Per **D2** the schema keeps `ownerId`, so the SDK guard cannot be called on the row directly.
+A thin **assertion-function wrapper** delegates to it, which preserves the 404 status, the
+`security.ownership_failed` audit event, _and_ TypeScript narrowing (which a bare projected
+object would lose):
+
+```ts
+// src/lib/tickets.ts
+import { assertOwnership } from "@/lib/security";
+
+/** Delegates to the SDK guard while mapping `ownerId` → the `userId` field it expects. */
+export function assertTicketOwner<T extends { id: string; ownerId: string }>(
+  ticket: T | null | undefined,
+  userId: string,
+): asserts ticket is T {
+  assertOwnership(
+    ticket ? { id: ticket.id, userId: ticket.ownerId } : null,
+    userId,
+  );
+}
+
+/** Full visibility guard — owner/viewer see the org, agents see only their own rows. */
+export function assertTicketVisible<
+  T extends { id: string; ownerId: string; assigneeId: string | null },
+>(
+  ticket: T | null | undefined,
+  ctx: { role: MembershipRole; userId: string },
+): asserts ticket is T {
+  if (!ticket) assertOwnership(null, ctx.userId); // → 404 + audit event
+  if (ctx.role === "agent" && ticket!.assigneeId !== ctx.userId) {
+    assertTicketOwner(ticket, ctx.userId); // → 404 unless they own it
+  }
+}
+```
+
+This **extends** the SDK primitive rather than reimplementing it — every 404 still originates
+from `OwnershipError` inside `aiden-security`. Gap **G1** is filed upstream in parallel.
+
+### 3.6 Membership resolver (`src/lib/membership.ts`)
+
+```ts
+import "server-only";
+import { AbilityError } from "@upstart13-com/aiden-security";
+import { prisma } from "@/lib/prisma";
+
+export type MembershipContext = {
+  userId: string;
+  orgId: string;
+  role: MembershipRole;
+};
+
+/** Resolve the caller's org + role. Throws AbilityError (403) if they belong to no org. */
+export async function requireMembership(
+  userId: string,
+): Promise<MembershipContext> {
+  const m = await prisma.membership.findFirst({
+    where: { userId },
+    select: { orgId: true, role: true },
+  });
+  if (!m)
+    throw new AbilityError("org.member", "Not a member of any organization");
+  return { userId, orgId: m.orgId, role: m.role };
+}
+```
+
+A user with no membership gets **403**, not 404 — they are not probing for a resource id, so
+there is nothing to leak. This is the one deliberate exception to "deny as 404", and it is the
+single function that would change if the one-org-per-user scope boundary (**D4**,
+[§1.2](#12-scope-boundary--one-active-org-per-user-d4)) is ever lifted.
+
+### 3.7 Routes
+
+Ten routes. `RouteParams = Promise<{ id: string }>` throughout, per the `withAuth<P>` signature.
+
+| Method  | Path                      | Zod schema         | Checks                                        | Notes                                                |
+| ------- | ------------------------- | ------------------ | --------------------------------------------- | ---------------------------------------------------- |
+| `GET`   | `/api/tickets`            | `ListTicketsQuery` | `withAuth` + org-filter                       | List, org-scoped; agent rows narrowed in the `where` |
+| `POST`  | `/api/tickets`            | `CreateTicketBody` | `withAuth` + `parseRequest` + `assertCan`     | Fires `ai.classify` triage                           |
+| `GET`   | `/api/tickets/[id]`       | `RouteParams`      | `withAuth` + org-filter + `assertOwnership`   |                                                      |
+| `PATCH` | `/api/tickets/[id]`       | `UpdateTicketBody` | full perimeter + `assertCan`                  | May re-classify                                      |
+| `POST`  | `/api/tickets/[id]/close` | `RouteParams`      | full perimeter + `assertCan`                  |                                                      |
+| `POST`  | `/api/tickets/[id]/draft` | `DraftBody`        | full perimeter + `assertCan`                  | **SSE** stream                                       |
+| `GET`   | `/api/admin/members`      | —                  | `withAuth` + `assertCan` (owner)              |                                                      |
+| `PATCH` | `/api/admin/members/[id]` | `RoleChangeBody`   | full perimeter + `assertCan` (owner)          | Role change                                          |
+| `GET`   | `/api/admin/audit`        | —                  | `withAuth` + `assertCan` (owner) + org-filter | `AuditLog` viewer                                    |
+| `GET`   | `/api/admin/usage`        | —                  | `withAuth` + `assertCan` (owner) + org-filter | `AIUsage` spend                                      |
+
+`GET` routes take **no body**, so `parseRequest` (which calls `req.json()`) does not apply —
+query strings are validated with `ListTicketsQuery.safeParse(Object.fromEntries(url.searchParams))`,
+which CLAUDE.md permits explicitly.
+
+The starter's `/api/admin/users` is **replaced** by `/api/admin/members` (org-scoped); the
+starter's `/api/admin/audit` is **reworked** from the global `auditReader` to the org-scoped
+read in [§5.3](#53-org-scoped-audit-trail).
+
+### 3.8 Zod schemas (`src/lib/validation/ticket.ts`)
+
+```ts
+export const CreateTicketBody = z.object({
+  subject: z.string().min(1).max(200),
+  body: z.string().min(1).max(10_000),
+  assigneeId: z.string().cuid().optional(),
+});
+
+export const UpdateTicketBody = z
+  .object({
+    subject: z.string().min(1).max(200).optional(),
+    body: z.string().min(1).max(10_000).optional(),
+    status: z.enum(["open", "pending", "resolved", "closed"]).optional(),
+    assigneeId: z.string().cuid().nullable().optional(),
+  })
+  .refine((v) => Object.keys(v).length > 0, "At least one field is required");
+
+export const ListTicketsQuery = z.object({
+  status: z.enum(["open", "pending", "resolved", "closed"]).optional(),
+  priority: z.enum(["low", "medium", "high", "urgent"]).optional(),
+  cursor: z.string().optional(),
+  limit: z.coerce.number().int().min(1).max(100).default(25),
+});
+
+export const DraftBody = z.object({
+  tone: z.enum(["neutral", "apologetic", "concise"]).default("neutral"),
+});
+
+export const RoleChangeBody = z.object({
+  role: z.enum(["owner", "agent", "viewer"]),
+});
+```
+
+`orgId` is **never** accepted from the client in any schema — it is always derived from the
+session's membership. This is the structural reason cross-tenant writes are impossible, not
+merely unauthorized.
+
+### 3.9 Additional hardening
+
+- **`src/middleware.ts`** — mount `securityHeaders` from `@upstart13-com/aiden-security/middleware`
+  (HSTS, X-Frame-Options, CSP). Not currently present in the repo.
+- **Rate limiting** — both AI routes wrap `withRateLimit` keyed on `session.user.id`, matching
+  the pattern already in `src/app/api/ai/chat/route.ts`, so one account cannot drive unbounded
+  provider spend.
+- **Last-owner guard** — `PATCH /api/admin/members/[id]` refuses to demote the org's final
+  `owner` (400 with a specific message), and refuses self-demotion. Without this an org can be
+  permanently locked out of its own admin surface.
+
+---
+
+## 4. Dimension 3 — AI surface
+
+Exactly **two** AI capabilities. Anything further — thread summarisation, a tool-using agentic
+loop — is explicitly out of scope.
+
+### 4.1 Provider-agnostic wiring
+
+`src/lib/ai.ts` already exposes lazy per-provider factories over `createAIClient`. Phase 0
+repairs it to read an `ai.models` map (see [§1.4](#14-pre-existing-breakage-to-clear-first-phase-0)).
+Add a single default resolver so routes never name a provider:
+
+```ts
+// aiden.config.ts
+ai: {
+  /** The active provider. THIS is the one line that swaps vendors. */
+  defaultProvider: "anthropic",
+  providers: { openai: false, anthropic: true, google: false, mistral: false, groq: false, cohere: false },
+  models: { anthropic: "claude-haiku-4-5", openai: "gpt-4o-mini", google: "gemini-2.5-flash" },
+}
+```
+
+```ts
+// src/lib/ai.ts
+export const defaultAI = (): Promise<AIClient> =>
+  ai[aidenConfig.ai.defaultProvider]();
+```
+
+Both AI routes call `defaultAI()`. **Switching providers live is one line** —
+`defaultProvider: "openai"` plus the matching env var — with no route changes. Provider SDKs
+are optional peer deps, so `npm install @anthropic-ai/sdk` is part of Phase 0 and nothing else
+is installed.
+
+### 4.2 Feature 1 — Draft reply (SSE streaming)
+
+`POST /api/tickets/[id]/draft`. The **only** streaming surface.
+
+```ts
+export const POST = withAuth<RouteParams>(
+  withRateLimit<AuthHandlerContext<RouteParams>>(
+    async (req, { session, params }) => {
+      const { id } = await params;
+      const { tone } = await parseRequest(req, DraftBody);
+      const ctx = await requireMembership(session.user.id);
+
+      assertCan(abilities, session, "ai.invoke", ctx); // viewer → 403
+
+      const ticket = await prisma.ticket.findFirst({
+        where: { id, orgId: ctx.orgId },
+      });
+      assertTicketVisible(ticket, ctx); // cross-tenant → 404
+
+      const client = await defaultAI();
+      const stream = await withAICall(
+        { orgId: ctx.orgId, feature: "ticket.draft" },
+        () =>
+          client.stream({
+            system: DRAFT_SYSTEM_PROMPT,
+            messages: [
+              { role: "user", content: renderTicketForDraft(ticket, tone) },
+            ],
+          }),
+      );
+
+      auditLog({
+        event: "ticket.draft_requested",
+        resourceId: ticket.id,
+        metadata: { orgId: ctx.orgId, tone },
+      });
+      return createAIStreamResponse(stream, { signal: req.signal });
+    },
+    {
+      limit: 10,
+      windowMs: 60_000,
+      keyFor: (_r, { session }) => session.user.id,
+    },
+  ),
+);
+```
+
+**The full perimeter runs before a single token is generated.** The SSE response is the last
+statement in the handler — an authorization failure is a plain JSON 403/404, never a stream
+that opens and then errors.
+
+No custom SSE encoder is written. `createAIStreamResponse` + `useAIStream` own the wire format
+(`data: {"delta":...}` frames, terminal `event: done`, `event: error` on failure). `{ signal: req.signal }`
+is passed so an aborted client stops provider billing.
+
+### 4.3 Feature 2 — Triage classification (structured output)
+
+The **only** `responseSchema` use. Fires on ticket create, and on update when `subject` or
+`body` changed.
+
+```ts
+const TRIAGE_SCHEMA = {
+  type: "object",
+  properties: {
+    priority: { type: "string", enum: ["low", "medium", "high", "urgent"] },
+    category: { type: "string" },
+    sentiment: { type: "string", enum: ["positive", "neutral", "negative"] },
+  },
+  required: ["priority", "category", "sentiment"],
+} as const;
+
+const TriageResult = z.object({
+  priority: z.enum(["low", "medium", "high", "urgent"]),
+  category: z.string().min(1).max(60),
+  sentiment: z.enum(["positive", "neutral", "negative"]),
+});
+```
+
+```ts
+// src/lib/triage.ts
+export async function classifyTicket(
+  input: { subject: string; body: string },
+  ctx: MembershipContext,
+) {
+  const client = await defaultAI();
+  const res = await withAICall(
+    { orgId: ctx.orgId, feature: "ticket.triage" },
+    () =>
+      client.complete({
+        system: TRIAGE_SYSTEM_PROMPT,
+        messages: [
+          { role: "user", content: `${input.subject}\n\n${input.body}` },
+        ],
+        responseSchema: TRIAGE_SCHEMA,
+      }),
+  );
+  // The provider's JSON is untrusted input — re-validate before it reaches the DB.
+  return TriageResult.safeParse(res.parsed);
+}
+```
+
+Two deliberate choices:
+
+1. **The model's output is re-validated with Zod before it is persisted.** `responseSchema`
+   enforcement varies by provider (OpenAI uses strict `json_schema`; Anthropic merely
+   _instructs_ the model to emit JSON), so a schema-shaped prompt is not a guarantee. The Zod
+   parse is what actually protects the enum columns.
+2. **Triage never fails the request.** On a provider error or a failed parse, the ticket is
+   still created with its default `medium` priority and `triagedAt` left `null`; the failure is
+   recorded via `log.error()` (never swallowed) and the UI shows "Not triaged". A flaky vendor
+   must not block a customer filing a ticket.
+
+Both calls run **after** the write commits, so a slow provider does not hold a DB transaction
+open.
+
+---
+
+## 5. Dimension 4 — Observability & cost telemetry
+
+### 5.1 Logging & audit (already wired — extend only)
+
+`src/lib/logger.ts` (pino) and `src/lib/audit.ts` (Prisma audit sink, registered from
+`src/instrumentation.ts`) are in place. `withAuth` runs every handler inside
+`withRequestContext`, so `requestId` / `userId` auto-attach to every log line and audit record.
+
+Events this build emits: `ticket.created`, `ticket.updated`, `ticket.closed`,
+`ticket.draft_requested`, `member.role_changed`. The SDK already emits
+`security.ownership_failed` and `security.ability_denied` on every perimeter rejection — so the
+**denial path is audited without any app code**, which is what makes the audit viewer a real
+security artefact rather than a changelog.
+
+Every app-emitted record carries `metadata: { orgId }` — both for the audit viewer's defensive
+second filter and as the migration path if gap **G2** is fixed with a `tenantId` column.
+
+### 5.2 AI cost telemetry
+
+`aiden-ai` calls `recordAIUsage()` on every successful completion **and** on
+`finalResponse()` of a stream (so partial reads still bill correctly). The app swaps the sink
+for a Prisma writer.
+
+The obstacle is gap **G3**: `AIUsageRecord` is closed, so the sink receives `userId` and
+`requestId` but has no way to learn the `orgId` or the feature. An `AsyncLocalStorage`
+call-context bridges it:
+
+```ts
+// src/lib/ai-usage.ts
+import "server-only";
+import { AsyncLocalStorage } from "node:async_hooks";
+import { setAIUsageSink } from "@upstart13-com/aiden-logging";
+import { prisma } from "@/lib/prisma";
+import { log } from "@/lib/logger";
+
+type AICallMeta = { orgId: string; feature: "ticket.draft" | "ticket.triage" };
+const aiCallContext = new AsyncLocalStorage<AICallMeta>();
+
+/** Tag every recordAIUsage() fired inside `fn` with the org + feature. */
+export function withAICall<T>(
+  meta: AICallMeta,
+  fn: () => Promise<T>,
+): Promise<T> {
+  return aiCallContext.run(meta, fn);
+}
+
+setAIUsageSink(async (record) => {
+  const meta = aiCallContext.getStore();
+  try {
+    await prisma.aIUsage.create({
+      data: { ...record, orgId: meta?.orgId, feature: meta?.feature },
+    });
+  } catch (err) {
+    // Never let telemetry fail a user request — but never swallow it silently either.
+    log.error({ err, record }, "failed to persist AI usage");
+  }
+});
+```
+
+Registered once from `src/instrumentation.ts`, alongside the existing audit sink.
+
+`AsyncLocalStorage` survives the `await` boundaries inside the provider adapter, so a streamed
+call's `finalResponse()` — which fires long after the handler returned its Response — still
+resolves the right org. This is the reason for a context rather than a parameter.
+
+### 5.3 Org-scoped audit trail
+
+Gap **G2** means `auditReader` cannot filter by tenant. The owner-only viewer therefore reads
+`prisma.auditLog` directly:
+
+```ts
+const memberIds = (
+  await prisma.membership.findMany({
+    where: { orgId: ctx.orgId },
+    select: { userId: true },
+  })
+).map((m) => m.userId);
+
+const entries = await prisma.auditLog.findMany({
+  where: { actorId: { in: memberIds } },
+  orderBy: [{ timestamp: "desc" }, { id: "desc" }],
+  take: limit + 1,
+});
+```
+
+`AuditLog.actorId` is indexed by the shipped fragment, so this stays a single indexed query.
+This is a **read against a table the SDK owns**, not a reimplementation of the audit
+subsystem — the sink, the record shape, and the write path remain entirely the SDK's.
+
+### 5.4 Cost view
+
+`GET /api/admin/usage` aggregates `AIUsage` for the caller's org:
+
+- `_sum.costUSD`, `_sum.totalTokens`, `_count` — all-time and last-30-days
+- `groupBy: ["feature"]` — Draft reply vs triage spend split
+- `groupBy: ["model"]` — spend per model
+- The 20 most recent calls, for the detail table
+
+Every query carries `where: { orgId: ctx.orgId }`. Cost is as tenant-scoped as ticket data.
+
+---
+
+## 6. Dimension 5 — UI / UX
+
+### 6.1 Mandatory pre-flight
+
+CLAUDE.md requires the `frontend-design` skill before any UI code. **That skill does not
+exist** in this repo (gap **G4**) and nothing defines what it would do, so this plan does not
+invent one. Instead the pattern is established from the documentation that _is_ available —
+CLAUDE.md's Pre-Flight table and `docs/design-system/*` — and **that read is the binding
+gate**. If the skill ships later it should encode exactly this procedure.
+
+**The procedure, run once per UI surface before writing it:**
+
+1. **Read `docs/design-system/00-overview.md`.** Always, for every UI task — it carries the
+   golden rules, the token vocabulary and the anti-pattern table. _(Done for this plan.)_
+2. **Read the DS file(s) for the specific component type** being built, per the table below.
+   Read only those — CLAUDE.md's Context Management section forbids pulling all nine files.
+3. **Read the API route that serves the surface** before writing its fetch, and match the
+   response envelope exactly ([§6.8](#68-read-the-api-route-before-writing-the-fetch)).
+4. **Write the surface**, then verify against `00-overview.md`'s anti-pattern table.
+5. **Check light and dark, at mobile / tablet / desktop**, before the surface is called done.
+
+**Which file each Phase 8 surface requires:**
+
+| Surface                    | DS files to read first                                                                                                                       |
+| -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| Ticket list (`/dashboard`) | `08-page-layouts.md` (dashboard page), `05-data-display.md` (table, metric cards, empty states), `02-components.md` (status/priority badges) |
+| Ticket detail              | `08-page-layouts.md` (detail page + breadcrumb), `02-components.md` (tabs), `07-feedback.md` (streaming + error states)                      |
+| New-ticket form            | `03-forms.md`                                                                                                                                |
+| Close confirmation         | `04-dialogs.md`                                                                                                                              |
+| Admin members              | `05-data-display.md` (table), `03-forms.md` (role select), `04-dialogs.md` (demotion confirm)                                                |
+| Admin audit                | `05-data-display.md` (table, empty state)                                                                                                    |
+| Admin cost                 | `05-data-display.md` (metric cards, table)                                                                                                   |
+| Sidebar + nav              | `06-navigation.md`                                                                                                                           |
+| Every page                 | `08-page-layouts.md` — `PageHeader`, `px-6 py-8`, `space-y-8`                                                                                |
+
+Files already read for this plan: `00-overview.md` (full), `08-page-layouts.md` (full),
+`05-data-display.md` and `02-components.md` (partial — tables, empty states, badge
+semantics). `03-forms.md`, `04-dialogs.md`, `06-navigation.md` and `07-feedback.md` are
+**unread** and must be read at their first use above.
+
+**The automated backstop.** `.claude/hooks/check-design-system.sh` runs on every `.tsx`/`.jsx`
+write and blocks on hardcoded Tailwind color scales (Rule 1) and default exports in non-route
+files (Rule 3) — both correct, and both enforcing CLAUDE.md. Its Rule 2 currently contradicts
+the DS radius scale and is fixed in Phase 0 (gap **G6**). The hook is a backstop for two
+mechanical rules, **not** a substitute for the pre-flight read: it cannot check token
+semantics, hierarchy, empty states, or whether a surface has one primary CTA.
+
+### 6.2 Pages
+
+| Page          | Route                     | Contents                                             |
+| ------------- | ------------------------- | ---------------------------------------------------- |
+| Ticket list   | `/dashboard`              | Tickets with status/priority                         |
+| Ticket detail | `/dashboard/tickets/[id]` | Live streaming **Draft-reply** panel (`useAIStream`) |
+| Members       | `/admin/members`          | Role management (owner-only)                         |
+| Audit         | `/admin/audit`            | Org-scoped `AuditLog` viewer                         |
+| Cost          | `/admin/cost`             | `AIUsage` spend view                                 |
+
+### 6.3 Layout and token rules
+
+Binding for every page (from `00-overview.md` and `08-page-layouts.md`):
+
+- `PageHeader` from `@upstart13-com/aiden-ui` on **every** page — renders `border-b border-border px-6 py-5`.
+- Content area: `px-6 py-8`, sections `space-y-8`. No global `max-w-*` on data views.
+- **No hardcoded colors.** Semantic tokens only — `bg-background`, `text-muted-foreground`,
+  `border-border`. No `bg-gray-*` / `text-zinc-*` / `border-slate-*`.
+- Radius scale: `rounded-md` inputs, `rounded-lg` buttons/badges, `rounded-xl` cards,
+  `rounded-2xl` modals, `rounded-full` only for avatars and status dots.
+- **One primary CTA per page section** — everything else `secondary` / `outline` / `ghost`.
+- Lucide icons only, `strokeWidth={1.5}`, default `size-4`.
+- Empty states are complete: icon + title + description + action.
+- Loading is **skeleton-first**, never a full-page spinner.
+- Responsive at mobile / tablet / desktop; verify light **and** dark.
+
+### 6.4 Ticket list — `/dashboard`
+
+`PageHeader` ("Tickets" + subtitle + a single primary **New ticket** CTA, hidden for viewers),
+then four metric cards (Open / Pending / Resolved / Urgent), then the data table.
+
+Status and priority render as `Badge` variants, per the DS semantics table:
+
+| Value             | Badge                   | Dot                   |
+| ----------------- | ----------------------- | --------------------- |
+| `open`            | `info`                  | `bg-info`             |
+| `pending`         | `warning`               | `bg-warning`          |
+| `resolved`        | `success`               | `bg-success`          |
+| `closed`          | `secondary`             | `bg-muted-foreground` |
+| `urgent` / `high` | `destructive` / `error` | —                     |
+| `medium` / `low`  | `secondary` / `outline` | —                     |
+
+Empty state: icon + "No tickets yet" + description + **New ticket** (and, for a viewer, no
+action button — a disabled CTA with no explanation is a DS anti-pattern).
+
+### 6.5 Ticket detail — `/dashboard/tickets/[id]`
+
+Breadcrumb above the title (the DS detail-page pattern — `PageHeader` has no breadcrumb slot,
+so this one case inlines a wrapper matching `border-b border-border px-6 py-5`), then `Tabs`:
+**Conversation** | **AI draft** | **Activity**.
+
+The **Draft reply panel** is the streaming surface:
+
+```tsx
+"use client";
+import { useAIStream } from "@upstart13-com/aiden-realtime/react";
+
+const { text, isLoading, send, reset, error } = useAIStream(
+  `/api/tickets/${id}/draft`,
+);
+```
+
+- Idle → empty state with a **Draft reply** button.
+- Streaming → tokens render as they arrive; the button reads "Drafting…" and is disabled.
+- Error → `role="alert"` with a **specific** message. "Something went wrong" is forbidden by
+  the DS; a 403 renders "Viewers can't generate AI drafts", a 429 renders "Too many drafts —
+  try again in a minute."
+- Done → **Copy** and **Regenerate** actions.
+
+The panel is the one `"use client"` island on the page. It imports **no** server module —
+`prisma`, `auth`, and anything from `src/lib/*.ts` marked `server-only` stay out of it.
+
+### 6.6 Admin pages
+
+All three are owner-only. `src/app/admin/layout.tsx` already exists and gates the segment —
+extend it to check the **membership** role (not the global RBAC role), and render a
+403 state rather than redirecting, so an owner-less member learns why.
+
+- **Members** — table of org members (name, email, role, joined). Role changes via a `Select`
+  (needs `npx shadcn@latest add select` — not re-exported by `aiden-ui`). Confirmation dialog
+  on demotion. The last-owner guard from [§3.9](#39-additional-hardening) surfaces as an
+  inline error, not a toast that vanishes.
+- **Audit** — reverse-chronological table (timestamp, event, actor, resource, IP). Filter by
+  event. Denial events (`security.ownership_failed`, `security.ability_denied`) rendered with
+  a `destructive` badge so the security signal is visible at a glance.
+- **Cost** — metric cards (total spend, total tokens, calls, 30-day spend), spend-by-feature
+  and spend-by-model breakdowns, then the recent-calls table. Money formatted via
+  `Intl.NumberFormat` with 4 decimal places — per-call costs are fractions of a cent.
+
+### 6.7 Navigation
+
+Extend `src/config/nav.ts` (the single source of truth):
+
+```ts
+export const primaryNavItems: DashboardNavItem[] = [
+  {
+    href: "/dashboard",
+    label: "Tickets",
+    icon: "LayoutDashboard",
+    exact: true,
+  },
+];
+
+export const adminNavItems: DashboardNavItem[] = [
+  { href: "/admin/members", label: "Members", icon: "Users", exact: false },
+  { href: "/admin/audit", label: "Audit", icon: "ScrollText", exact: false },
+  { href: "/admin/cost", label: "Cost", icon: "Receipt", exact: false },
+];
+```
+
+The layout decides at render time whether to show the admin group, based on the caller's
+membership role. Icon names resolve against `defaultNavIconRegistry`; any not in the default
+registry are passed through a custom registry rather than imported ad hoc.
+
+### 6.8 Read the API route before writing the fetch
+
+Per `.claude/fixes/ui.md` and CLAUDE.md's "Things to Avoid": every client fetch is written
+**after** reading the route that serves it, and the response shape is matched exactly. A
+mismatched shape produces a silently empty view, not an error.
+
+Response envelopes are fixed here so both sides agree up front:
+
+| Route                          | Response                                                             |
+| ------------------------------ | -------------------------------------------------------------------- |
+| `GET /api/tickets`             | `{ tickets: Ticket[], nextCursor: string \| null }`                  |
+| `GET /api/tickets/[id]`        | `{ ticket: Ticket }`                                                 |
+| `POST /api/tickets`            | `{ ticket: Ticket }` (201)                                           |
+| `PATCH /api/tickets/[id]`      | `{ ticket: Ticket }`                                                 |
+| `POST /api/tickets/[id]/close` | `{ ticket: Ticket }`                                                 |
+| `GET /api/admin/members`       | `{ members: Member[] }`                                              |
+| `GET /api/admin/audit`         | `{ entries: AuditLogEntry[], nextCursor: string \| null }`           |
+| `GET /api/admin/usage`         | `{ totals: {...}, byFeature: [...], byModel: [...], recent: [...] }` |
+
+---
+
+## 7. Dimension 6 — Bootstrap & ops
+
+### 7.1 Local environment
+
+`docker-compose.yml` already provides Postgres matching `DATABASE_URL` in `.env.local`.
+
+```bash
+docker compose up -d                        # Postgres
+npm install @anthropic-ai/sdk               # the one provider SDK (optional peer dep)
+npm run prisma:merge                        # fragments → schema.prisma
+npm run db:migrate                          # migrate dev --name deskline_core
+npm run db:seed                             # 2 orgs, 6 users, 8 tickets
+npm run dev
+```
+
+New env vars for `.env.local` and `.env.example`: `ANTHROPIC_API_KEY`, plus `SEED_PASSWORD`
+for the seeded dev accounts. Both are read from the environment — never hardcoded.
+
+### 7.2 `aiden doctor`
+
+Must come back green before the build is considered complete. It validates `aiden.config.ts`,
+checks required env vars (derived from the feature flags), warns if `src/app/layout.tsx` lacks
+a `ThemeProvider`, and shells out to `osv-scanner` for live CVE scanning.
+
+Two known wrinkles, both already recorded in `.claude/progress.log`:
+
+- `aiden-cli` 2.0.1's config parser strips `//` comments naively and truncates `https://`
+  strings, and rejects `as T` annotations (only `as const` is tolerated). Any edit to
+  `aiden.config.ts` must avoid both. Adding `defaultProvider` and `models` is safe — they are
+  plain string literals inside the existing `as const` object.
+- The two CVEs doctor previously reported trace to `aiden-ui` declaring `shadcn` (a bin-only
+  CLI) as a **runtime** dependency. The `npm overrides` block in `package.json` clears both.
+  Do not remove it. **Upstream fix to raise:** move `shadcn` to `devDependencies` in `aiden-ui`.
+
+### 7.3 `aiden upgrade --dry-run`
+
+Run as a readiness-bar item, with the eight steps it performs explained in the build write-up.
+`npx aiden upgrade` is the **only** sanctioned way to bump `@upstart13-com/aiden-*` versions —
+never hand-edit `package.json` — because it also runs the codemods and migrations that keep
+call sites in step with the SDK, and it opens a dedicated PR to be reviewed and merged
+separately from feature work.
+
+### 7.4 Git workflow
+
+Branch `feature/deskline-core`, conventional commits (`feat(tickets):`, `feat(ai):`,
+`feat(admin):`). `/ship` to commit, push and open the PR — it gates on `/security-review`.
+Never commit `.env*`, `src/generated/`, `.next/`.
+
+---
+
+## 8. Dimension 7 — Verification & grading
+
+### 8.1 Per-change validation
+
+After every implementation step, not just at the end:
+
+```bash
+npm run lint          # must be clean
+npx tsc --noEmit      # must be clean — baseline is 7 pre-existing errors, see §1.4
+```
+
+`npm run build` only before the PR. `/validate` runs the standard loop.
+
+### 8.2 Security smoke suite
+
+`scripts/security-smoke.sh` — curl-based, run against `npm run dev`, exiting non-zero on any
+mismatch so it can gate CI.
+
+Gap **G5** rules out `/api/dev/impersonate` (it is a no-op stub). Each persona instead
+authenticates for real through the credentials provider, with its own cookie jar:
+
+```bash
+# Per persona: fetch CSRF token, sign in, keep the session cookie.
+curl -s -c "$JAR" "$BASE/api/auth/csrf" | jq -r .csrfToken > "$TOKEN"
+curl -s -b "$JAR" -c "$JAR" -X POST "$BASE/api/auth/callback/credentials" \
+  --data-urlencode "csrfToken=$(cat "$TOKEN")" \
+  --data-urlencode "email=$EMAIL" --data-urlencode "password=$SEED_PASSWORD"
+```
+
+The assertion matrix — **every row asserts an exact status code**:
+
+| #   | Persona          | Action                                                 | Expect                                                                                       |
+| --- | ---------------- | ------------------------------------------------------ | -------------------------------------------------------------------------------------------- |
+| 1   | anonymous        | `GET /api/tickets`                                     | **401**                                                                                      |
+| 2   | anonymous        | `GET /api/tickets/{acme-id}`                           | **401**                                                                                      |
+| 3   | acme owner       | `GET /api/tickets`                                     | 200, every row `orgId == acme`                                                               |
+| 4   | acme owner       | `GET /api/tickets/{acme-agent2-ticket}`                | 200 (owner reads every ticket in org)                                                        |
+| 5   | **globex owner** | `GET /api/tickets/{acme-id}`                           | **404** — cross-tenant, never 403                                                            |
+| 6   | **globex agent** | `PATCH /api/tickets/{acme-id}`                         | **404**                                                                                      |
+| 7   | **globex owner** | `POST /api/tickets/{acme-id}/close`                    | **404**                                                                                      |
+| 8   | **acme agent**   | `GET /api/tickets/{acme-agent2-ticket}`                | **404** — same org, another agent's row                                                      |
+| 9   | acme agent       | `GET /api/tickets/{own-ticket}`                        | 200                                                                                          |
+| 10  | acme agent       | `GET /api/tickets/{assigned-ticket}`                   | 200                                                                                          |
+| 11  | **acme viewer**  | `PATCH /api/tickets/{acme-id}`                         | **403** — capability, not visibility                                                         |
+| 12  | **acme viewer**  | `POST /api/tickets`                                    | **403**                                                                                      |
+| 13  | **acme viewer**  | `POST /api/tickets/{acme-id}/draft`                    | **403** — `assertCan` denies AI                                                              |
+| 14  | acme viewer      | `GET /api/tickets/{acme-id}`                           | 200 (read-only is allowed)                                                                   |
+| 15  | acme agent       | `GET /api/admin/members`                               | **403**                                                                                      |
+| 16  | acme agent       | `GET /api/admin/audit`                                 | **403**                                                                                      |
+| 17  | acme agent       | `GET /api/admin/usage`                                 | **403**                                                                                      |
+| 18  | **globex owner** | `PATCH /api/admin/members/{acme-member-id}`            | **404**                                                                                      |
+| 19  | acme owner       | `POST /api/tickets` with `{}`                          | **400** (Zod)                                                                                |
+| 20  | acme owner       | `POST /api/tickets` with `{ orgId: "globex-id", ... }` | 201 **and** the row's `orgId == acme` — the client-supplied `orgId` is ignored, not honoured |
+| 21  | acme owner       | `GET /api/admin/audit`                                 | 200, zero entries whose actor is outside acme                                                |
+| 22  | acme owner       | `GET /api/admin/usage`                                 | 200, every row `orgId == acme`                                                               |
+| 23  | acme owner       | demote the last owner                                  | **400**, org retains an owner                                                                |
+| 24  | acme agent       | 11 rapid `POST .../draft`                              | final request **429**                                                                        |
+
+Rows 5–8 and 18 are the heart of it: **every cross-tenant probe returns 404**, and there is no
+input that produces a 403 for a resource in another org — which is exactly the enumeration
+leak the design forbids.
+
+Row 20 deserves emphasis: it proves tenancy is enforced _structurally_ (`orgId` is never in a
+Zod schema) rather than by a check that could be forgotten.
+
+### 8.3 `/security-review`
+
+Run before the PR — mandatory, and enforced as a gate by `/ship`. Expected focus areas:
+
+- Every route under `src/app/api/**` calls `withAuth` (no public endpoints in this build).
+- Every ticket query carries an `orgId` in its `where` — no bare `findUnique({ where: { id } })`.
+- No `$executeRawUnsafe`, `eval()`, `dangerouslySetInnerHTML`, `new Function()`.
+- No server module (`@/lib/prisma`, `@/lib/auth`, anything `server-only`) imported from a
+  `"use client"` file.
+- No secret, API key or token hardcoded; no sensitive value passed to `log.*`.
+- The AI-provider response is re-validated before it reaches the database ([§4.3](#43-feature-2--triage-classification-structured-output)).
+
+### 8.4 Manual verification
+
+- Both AI features exercised end to end against a live provider: draft streams token-by-token;
+  triage writes `priority` / `category` / `sentiment` on create.
+- A row lands in `ai_usage` for **both** features, with correct `orgId`, `feature` and non-zero
+  `costUSD` — including after a **stream the user aborted mid-draft** (the `finalResponse()`
+  path).
+- `defaultProvider` flipped to a second provider and both features re-run — the "one config
+  line" claim is graded live, so it is verified, not asserted.
+- Every page checked in light and dark, at mobile / tablet / desktop widths.
+
+---
+
+## 9. Build sequence
+
+Phases 3 and 7 are built **one route at a time**, not as a batch. Each sub-step is a complete
+vertical slice — route, guards, audit event — and ends with its own smoke rows green. A route
+is not started until the previous one passes, so a perimeter regression is always attributable
+to the single route that introduced it.
+
+| Phase  | Work                                                                                                                                                                                                                                                                              | Done when                                                                                                    |
+| ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| **0**  | Clear the 7 pre-existing `tsc` errors ([§1.4](#14-pre-existing-breakage-to-clear-first-phase-0)); `npm install @anthropic-ai/sdk`; set the real `ANTHROPIC_API_KEY` in `.env.local` (already documented in `.env.example`); fix the `check-design-system.sh` radius rule (**G6**) | `tsc --noEmit` and `lint` both clean; `aiden doctor` green                                                   |
+| **1**  | Fragments (`org`, `ticket`, `ai-usage`), `user.prisma` back-refs, merge, migrate, seed                                                                                                                                                                                            | `db:seed` idempotent; 2 orgs, 6 users, 8 tickets present                                                     |
+| **2**  | `membership.ts`, `tickets.ts` guards, `abilities.ts` rules, `middleware.ts`                                                                                                                                                                                                       | Unit-level: every guard returns the right status                                                             |
+| **3a** | `GET /api/tickets` — list. Establishes the perimeter and `ticketVisibilityWhere` against seeded fixtures                                                                                                                                                                          | Smoke **1, 3**; an agent's query emits an `OR` on `ownerId`/`assigneeId` (verify the SQL, not just the rows) |
+| **3b** | `GET /api/tickets/[id]` — get. Carries the whole visibility matrix, so it is built before any write route                                                                                                                                                                         | Smoke **2, 4, 5, 8, 9, 10, 14** — all three roles, same-org and cross-tenant                                 |
+| **3c** | `POST /api/tickets` — create (no triage yet; defaults persist)                                                                                                                                                                                                                    | Smoke **12, 19, 20** — including the client-supplied `orgId` being ignored                                   |
+| **3d** | `PATCH /api/tickets/[id]` — update (no re-classify yet)                                                                                                                                                                                                                           | Smoke **6, 11** — cross-tenant 404 vs viewer 403, side by side                                               |
+| **3e** | `POST /api/tickets/[id]/close` — close + `closedAt`                                                                                                                                                                                                                               | Smoke **7**; closing an already-closed ticket is idempotent                                                  |
+| **4**  | Triage (`ai.complete({ responseSchema })`) wired into 3c + 3d                                                                                                                                                                                                                     | Triage fields populate; a provider failure does not fail the write                                           |
+| **5**  | `ai-usage.ts` sink + `withAICall`; register in `instrumentation.ts`                                                                                                                                                                                                               | `ai_usage` rows carry `orgId` + `feature`                                                                    |
+| **6**  | Draft-reply SSE route                                                                                                                                                                                                                                                             | Smoke **13, 24**; perimeter runs before the first token                                                      |
+| **7a** | `GET /api/admin/members` — the owner-only gate, proven once here                                                                                                                                                                                                                  | Smoke **15**                                                                                                 |
+| **7b** | `PATCH /api/admin/members/[id]` — role change + last-owner and self-demotion guards                                                                                                                                                                                               | Smoke **18, 23**                                                                                             |
+| **7c** | `GET /api/admin/audit` — org-scoped read ([§5.3](#53-org-scoped-audit-trail))                                                                                                                                                                                                     | Smoke **16, 21**; the denial events logged by 3a–3e are visible                                              |
+| **7d** | `GET /api/admin/usage` — spend aggregation. Last, so phases 4–6 have produced real rows to aggregate                                                                                                                                                                              | Smoke **17, 22**                                                                                             |
+| **8**  | **UI pre-flight** ([§6.1](#61-mandatory-pre-flight)), then all five pages + nav                                                                                                                                                                                                   | Light/dark, three breakpoints, no hardcoded colors                                                           |
+| **9**  | Full smoke suite green, `/security-review`, `aiden upgrade --dry-run`, `aiden doctor`                                                                                                                                                                                             | All green; PR opened via `/ship`                                                                             |
+
+Every sub-step from **3a** through **7d** ends with `npm run lint && npx tsc --noEmit`, and
+re-runs **every** smoke row passed so far — not just its own. The suite is cumulative, so a
+later route that weakens an earlier guard fails the build at the step that caused it.
+
+Phase 8 opens with the §6.1 pre-flight read — the binding gate, since the
+`frontend-design` skill CLAUDE.md names does not exist (**G4**). It also depends on the
+**G6** hook fix landing in Phase 0, or every DS-correct card and button is blocked on write.
+
+Natural commit boundaries: one commit per sub-step (`feat(tickets): add org-scoped list route`),
+which keeps each perimeter change reviewable on its own in the PR.
+
+---
+
+## 10. Explicitly out of scope
+
+Building any of the following is scope creep:
+
+- **Helpdesk breadth** — SLAs, attachments, email ingestion, webhooks, notifications, billing,
+  multi-channel.
+- **A third AI feature.** "Summarize thread" is a named stretch goal, not core. The AI surface
+  is exactly one SSE feature plus one structured-output use.
+- **Tool-using / agentic AI loop** — a Professional-tier addition. `aiden-ai` supports tool use;
+  this build does not use it.
+- **External paid infrastructure** — Snowflake, Okta, Stripe, SendGrid, hosted vector DB.
+- **Hand-editing the composed schema or the generated client** (`prisma/schema.prisma`, `src/generated/prisma/`). The schema comes from
+  fragments; the client is generated and gitignored.
+- **A second `createAuth` call**, a custom SSE encoder, or WebSockets. SSE only in v1.
+- **Subjective grading of AI prose.** Only the perimeter, safety, streaming, telemetry and
+  structure are graded.
+- **A fourth RBAC role, or CASL conditions** unless a predicate genuinely needs them. The
+  `MembershipRole` Postgres enum makes a fourth role a migration, not an accident.
+- **Replacing an `@upstart13-com/aiden-*` primitive** with a local or third-party equivalent.
+  Where a primitive falls short ([§1.3](#13-known-gaps-in-the-aiden-sdk-to-raise-upstream-per-claudemd)),
+  the SDK is extended and the gap raised upstream.
+
+---
+
+## 11. Approval checklist
+
+**All items approved 2026-10-29.** The plan is approved; **the build has not started** —
+Phase 0 is not begun and no source file has been changed by this work.
+
+- [x] **D4** confirmed — one active org per user in v1 ([§1.2](#12-scope-boundary--one-active-org-per-user-d4))
+- [x] **G4** resolved — no skill authored; `docs/design-system/*` + CLAUDE.md's Pre-Flight table are the authority, formalised in [§6.1](#61-mandatory-pre-flight)
+- [x] **G6** accepted — narrow the `check-design-system.sh` radius rule in Phase 0, before any UI work
+- [x] **G1 / G2 / G3** accepted as interim approaches, and to be filed upstream
+- [x] **Phase 0 scope agreed** — clearing the 7 pre-existing `tsc` errors is in scope for this work
+- [x] **`ANTHROPIC_API_KEY`** accepted as a prerequisite — **not yet supplied**: the variable exists in `.env.local` but is commented out and empty (it is already documented in `.env.example`). First needed at **Phase 4**, the first real provider call; Phases 0–3e do not require it.
+
+### 11.1 What approval covers
+
+Approved: the resource family ([§2.1](#21-frozen-resource-family)), the two-axis
+403/404 perimeter ([§3.1](#31-the-two-axis-model)), the eight ability actions
+([§3.4](#34-abilities-srclibabilitiests)), the ten routes
+([§3.7](#37-routes)), the two AI surfaces ([§4](#4-dimension-3--ai-surface)), the
+24-row smoke matrix ([§8.2](#82-security-smoke-suite)), the build sequence
+([§9](#9-build-sequence)), and the out-of-scope list ([§10](#10-explicitly-out-of-scope)).
+
+Re-approval is needed only if a change would widen scope beyond
+[§10](#10-explicitly-out-of-scope), add a role or resource, alter the 403/404 contract, or
+add a third AI surface. Everything else — naming, file layout, the shape of a Zod schema — is
+a build-time detail.
+
+### 11.2 Not approved by this checklist
+
+- **The four unread DS files** (`03-forms.md`, `04-dialogs.md`, `06-navigation.md`,
+  `07-feedback.md`). They are read at first use per [§6.1](#61-mandatory-pre-flight); if one
+  contradicts a UI choice sketched in [§6](#6-dimension-5--ui--ux), the DS file wins and §6 is
+  corrected.
+- **The upstream SDK fixes** for G1–G3 and G6. Approval here accepts the _interim_ approaches
+  only; filing them is tracked separately and does not gate the build.
