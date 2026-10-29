@@ -20,9 +20,9 @@ export const aidenConfig = {
     tagline: "Your product tagline goes here.",
     description: "A short description of your app for metadata and previews.",
     supportEmail: "support@deskline.com",
-    url: "https://deskline.com",
+    url: "",
     companyLegalName: "Deskline, Inc.",
-    footerLinks: [] as { href: string; label: string }[],
+    footerLinks: [],
   },
 
   auth: {
@@ -40,12 +40,12 @@ export const aidenConfig = {
      * When `model` is omitted, src/lib/ai.ts falls back to a built-in default.
      */
     providers: {
-      openai: { enabled: false, model: undefined as string | undefined },
-      anthropic: { enabled: false, model: undefined as string | undefined },
-      google: { enabled: false, model: undefined as string | undefined },
-      mistral: { enabled: false, model: undefined as string | undefined },
-      groq: { enabled: false, model: undefined as string | undefined },
-      cohere: { enabled: false, model: undefined as string | undefined },
+      openai: false,
+      anthropic: false,
+      google: false,
+      mistral: false,
+      groq: false,
+      cohere: false,
     },
   },
 

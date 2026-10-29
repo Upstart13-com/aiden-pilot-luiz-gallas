@@ -1,1 +1,5 @@
 [2026-10-29 11:59] completed chore(docker): add docker-compose.yml for local postgres — matches DATABASE_URL in .env.local
+[2026-10-29 14:25] discovered chore(aiden): aiden-cli 2.0.1 cannot parse template aiden.config.ts — its '//' comment stripper truncates "https://..." strings, and it rejects 'as T' annotations (only 'as const' is stripped)
+[2026-10-29 14:25] blocked chore(aiden): aiden doctor still fails validation — CLI schema expects ai.providers.<name> as boolean, template ships { enabled, model } objects; needs upstream fix or config reshape
+[2026-10-29 14:28] completed fix(aiden): reshape ai.providers to booleans + new ai.models map so aiden-cli 2.0.1 schema validates — aiden doctor config check now passes; src/lib/ai.ts reads ai.models
+[2026-10-29 14:37] discovered chore(deps): both doctor CVEs trace to @upstart13-com/aiden-ui declaring shadcn (bin-only CLI) as a runtime dep — deepmerge has no patched release, nested zod 3.25.76 is unreachable; app's own zod 4.6.7 is already clean. Upstream fix: move shadcn to devDependencies
