@@ -7,7 +7,7 @@ import {
 } from "@/lib/security";
 import { abilities } from "@/lib/abilities";
 import { requireMembership } from "@/lib/membership";
-import { assertTicketVisible } from "@/lib/tickets";
+import { findVisibleTicket } from "@/lib/tickets";
 import { prisma } from "@/lib/prisma";
 import { RouteParams } from "@/lib/validation/ticket";
 
@@ -21,10 +21,7 @@ export const POST = withAuth<Params>(async (_req, { session, params }) => {
   const ctx = await requireMembership(session.user.id);
   assertCan(abilities, session, "ticket.close", ctx);
 
-  const ticket = await prisma.ticket.findFirst({
-    where: { id, orgId: ctx.orgId },
-  });
-  assertTicketVisible(ticket, ctx);
+  const ticket = await findVisibleTicket(id, ctx);
 
   // Closing an already-closed ticket is a no-op: keep the original closedAt.
   if (ticket.status === "closed") {

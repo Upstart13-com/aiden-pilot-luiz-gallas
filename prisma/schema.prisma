@@ -40,11 +40,12 @@ model AIUsage {
   latencyMs Int      @map("latency_ms")
   createdAt DateTime @default(now()) @map("created_at")
 
-  // Nullable + SetNull so a usage row survives its org being deleted, and
-  // so the sink never throws when it fires outside a request context.
-  org Org? @relation(fields: [orgId], references: [id], onDelete: SetNull)
+  // Nullable so the sink never throws when it fires outside a request
+  // context; usage rows are removed with their org.
+  org Org? @relation(fields: [orgId], references: [id], onDelete: Cascade)
 
   @@index([orgId, createdAt])
+  @@index([userId])
   @@map("ai_usage")
 }
 
@@ -146,14 +147,17 @@ model Ticket {
   updatedAt DateTime  @updatedAt @map("updated_at")
 
   org      Org   @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  owner    User  @relation("TicketOwner", fields: [ownerId], references: [id])
-  assignee User? @relation("TicketAssignee", fields: [assigneeId], references: [id])
+  owner    User  @relation("TicketOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  assignee User? @relation("TicketAssignee", fields: [assigneeId], references: [id], onDelete: Cascade)
 
   // Every index leads with orgId — tenant isolation is an index-level
   // property here, not only a convention in the query layer.
+  @@index([orgId])
   @@index([orgId, status])
   @@index([orgId, ownerId])
   @@index([orgId, assigneeId])
+  @@index([ownerId])
+  @@index([assigneeId])
   @@map("tickets")
 }
 

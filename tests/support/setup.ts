@@ -1,5 +1,5 @@
 import { beforeEach, vi } from "vitest";
-import { setFakeAIMode } from "./fake-ai";
+import { resetFakeAI } from "./fake-ai";
 import { signInAs } from "./session";
 
 // Every test file sees these mocks: sessions are set with `signInAs`, and AI
@@ -21,5 +21,5 @@ vi.mock("@/lib/ai", async () => {
 
 beforeEach(() => {
   signInAs(null);
-  setFakeAIMode("ok");
+  resetFakeAI();
 });

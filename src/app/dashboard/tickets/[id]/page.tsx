@@ -1,5 +1,3 @@
-import { notFound } from "next/navigation";
-import { OwnershipError } from "@upstart13-com/aiden-security";
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -17,11 +15,10 @@ import {
 import { CloseTicketButton } from "@/components/tickets/close-ticket-button";
 import { DraftPanel } from "@/components/tickets/draft-panel";
 import { PriorityBadge, StatusBadge } from "@/components/tickets/ticket-badges";
-import { abilities } from "@/lib/abilities";
+import { apiGet } from "@/lib/api-client";
+import type { TicketDetailResponse } from "@/lib/api-types";
 import { formatDate, formatDateTime } from "@/lib/format";
-import { getPageContext } from "@/lib/page-context";
-import { prisma } from "@/lib/prisma";
-import { assertTicketVisible } from "@/lib/tickets";
+import { getViewer, viewerCan } from "@/lib/page-context";
 
 export const dynamic = "force-dynamic";
 
@@ -31,27 +28,14 @@ export default async function TicketPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const { session, ctx } = await getPageContext(`/dashboard/tickets/${id}`);
+  const { me } = await getViewer();
+  // 404s (missing, another org's, another agent's) become notFound().
+  const { ticket } = await apiGet<TicketDetailResponse>(
+    `/api/tickets/${encodeURIComponent(id)}`,
+  );
 
-  const ticket = await prisma.ticket.findFirst({
-    where: { id, orgId: ctx.orgId },
-    include: {
-      owner: { select: { name: true, email: true } },
-      assignee: { select: { name: true, email: true } },
-    },
-  });
-  if (!ticket) notFound();
-  try {
-    assertTicketVisible(ticket, ctx);
-  } catch (err) {
-    if (err instanceof OwnershipError) notFound();
-    throw err;
-  }
-
-  const canClose =
-    ticket.status !== "closed" &&
-    abilities.can(session as never, "ticket.close", ctx);
-  const canDraft = abilities.can(session as never, "ai.invoke", ctx);
+  const canClose = ticket.status !== "closed" && viewerCan(me, "ticket.close");
+  const canDraft = viewerCan(me, "ai.invoke");
   const person = (u: { name: string | null; email: string } | null) =>
     u ? (u.name ?? u.email) : "Unassigned";
 
@@ -78,7 +62,7 @@ export default async function TicketPage({
     { label: "Triaged by AI", at: ticket.triagedAt },
     { label: "Closed", at: ticket.closedAt },
     { label: "Last updated", at: ticket.updatedAt },
-  ].filter((e): e is { label: string; at: Date } => e.at !== null);
+  ].filter((e): e is { label: string; at: string } => e.at !== null);
 
   return (
     <div>
@@ -169,10 +153,7 @@ export default async function TicketPage({
                       className="flex items-center justify-between gap-4 text-sm"
                     >
                       <span className="font-medium">{label}</span>
-                      <time
-                        className="text-muted-foreground"
-                        dateTime={at.toISOString()}
-                      >
+                      <time className="text-muted-foreground" dateTime={at}>
                         {formatDateTime(at)}
                       </time>
                     </li>

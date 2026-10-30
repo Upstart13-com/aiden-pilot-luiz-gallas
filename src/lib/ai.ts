@@ -1,12 +1,8 @@
 /**
- * Lazy AI client factories — call `ai.openai()` etc. only when needed
- * so SDKs you don't have installed never fault. Toggle providers and
- * pin a default `model` per provider in aiden.config.ts, then install
- * the corresponding SDK.
- *
- * Each factory resolves its model from `aiden.config.ts`
- * (`ai.providers[x].model`) and falls back to a built-in default only
- * when that field is unset. Pass an explicit `model` arg to override.
+ * Provider-agnostic AI client. `ai.defaultProvider` in aiden.config.ts picks
+ * the provider, `ai.providers` must have it enabled, and `ai.models` sets its
+ * model, so switching vendors is a one-line config change with no route
+ * edits. Install the matching provider SDK for whichever is enabled.
  */
 
 import { createAIClient, type AIClient } from "@upstart13-com/aiden-ai";
@@ -53,6 +49,23 @@ export const ai = {
     }),
 };
 
-/** Client for `ai.defaultProvider` in aiden.config.ts. Use this in app code. */
-export const defaultAI = (): Promise<AIClient> =>
-  ai[aidenConfig.ai.defaultProvider]();
+const provider = aidenConfig.ai.defaultProvider;
+let client: Promise<AIClient> | undefined;
+
+/**
+ * The app's AI client, created once and reused. Throws if the configured
+ * provider is not enabled in `ai.providers`.
+ */
+export function defaultAI(): Promise<AIClient> {
+  if (!aidenConfig.ai.providers[provider]) {
+    throw new Error(
+      `ai.defaultProvider "${provider}" is not enabled in aiden.config.ts ai.providers.`,
+    );
+  }
+  // Drop a failed creation (e.g. a missing SDK) so the next call retries.
+  client ??= ai[provider]().catch((err: unknown) => {
+    client = undefined;
+    throw err;
+  });
+  return client;
+}

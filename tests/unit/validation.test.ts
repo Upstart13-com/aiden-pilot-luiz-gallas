@@ -22,18 +22,26 @@ describe("ListTicketsQuery", () => {
 
   it("rejects unknown status and priority values", () => {
     expect(ListTicketsQuery.safeParse({ status: "lost" }).success).toBe(false);
-    expect(ListTicketsQuery.safeParse({ priority: "normal" }).success).toBe(false);
+    expect(ListTicketsQuery.safeParse({ priority: "normal" }).success).toBe(
+      false,
+    );
   });
 });
 
 describe("CreateTicketBody", () => {
   it("requires a subject and body", () => {
     expect(CreateTicketBody.safeParse({}).success).toBe(false);
-    expect(CreateTicketBody.safeParse({ subject: "s", body: "b" }).success).toBe(true);
+    expect(
+      CreateTicketBody.safeParse({ subject: "s", body: "b" }).success,
+    ).toBe(true);
   });
 
   it("drops an orgId sent by the client", () => {
-    const parsed = CreateTicketBody.parse({ subject: "s", body: "b", orgId: "x" });
+    const parsed = CreateTicketBody.parse({
+      subject: "s",
+      body: "b",
+      orgId: "x",
+    });
     expect(parsed).not.toHaveProperty("orgId");
   });
 });
@@ -41,7 +49,9 @@ describe("CreateTicketBody", () => {
 describe("UpdateTicketBody", () => {
   it("requires at least one field", () => {
     expect(UpdateTicketBody.safeParse({}).success).toBe(false);
-    expect(UpdateTicketBody.safeParse({ status: "pending" }).success).toBe(true);
+    expect(UpdateTicketBody.safeParse({ status: "pending" }).success).toBe(
+      true,
+    );
   });
 
   it("allows clearing the assignee", () => {

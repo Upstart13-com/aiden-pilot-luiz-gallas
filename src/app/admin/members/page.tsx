@@ -9,15 +9,16 @@ import {
   TableRow,
 } from "@upstart13-com/aiden-ui";
 import { RoleMenu } from "@/components/admin/role-menu";
-import { listMembers } from "@/lib/admin";
+import { apiGet } from "@/lib/api-client";
+import type { MembersResponse } from "@/lib/api-types";
 import { formatDate } from "@/lib/format";
-import { getPageContext } from "@/lib/page-context";
+import { getViewer } from "@/lib/page-context";
 
 export const dynamic = "force-dynamic";
 
 export default async function MembersPage() {
-  const { ctx } = await getPageContext("/admin/members");
-  const members = await listMembers(ctx.orgId);
+  const { me } = await getViewer();
+  const { members } = await apiGet<MembersResponse>("/api/admin/members");
 
   return (
     <div>
@@ -43,7 +44,7 @@ export default async function MembersPage() {
             </TableHeader>
             <TableBody>
               {members.map((m) => {
-                const isMe = m.userId === ctx.userId;
+                const isMe = m.userId === me.id;
                 return (
                   <TableRow key={m.id} className="hover:bg-muted/50">
                     <TableCell className="max-w-0 w-full">

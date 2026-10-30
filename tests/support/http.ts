@@ -19,7 +19,7 @@ type CallResult = {
 export async function call<P>(
   handler: Handler<P>,
   method: string,
-  { query, body, params }: CallOptions<P> = {}
+  { query, body, params }: CallOptions<P> = {},
 ): Promise<CallResult> {
   const url = new URL("http://localhost/api");
   for (const [k, v] of Object.entries(query ?? {})) url.searchParams.set(k, v);
@@ -30,7 +30,9 @@ export async function call<P>(
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   // Next passes params as a promise; P is that promise type.
-  const res = await handler(req, { params: Promise.resolve(params ?? {}) as P });
+  const res = await handler(req, {
+    params: Promise.resolve(params ?? {}) as P,
+  });
 
   const isJson = res.headers.get("content-type")?.includes("application/json");
   return { status: res.status, json: isJson ? await res.json() : null, res };

@@ -20,5 +20,12 @@ export default defineConfig(({ mode }) => ({
     setupFiles: ["tests/support/setup.ts"],
     // Route tests share one database, so test files run one at a time.
     fileParallelism: false,
+    server: {
+      deps: {
+        // next-auth imports "next/server" without an extension, which Node's
+        // ESM loader rejects; letting Vite transform these resolves it.
+        inline: ["next-auth", "@upstart13-com/aiden-auth"],
+      },
+    },
   },
 }));

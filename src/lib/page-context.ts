@@ -1,15 +1,29 @@
 import "server-only";
-import { notFound, redirect } from "next/navigation";
-import { auth } from "@/lib/auth";
-import { findMembership } from "@/lib/membership";
+import { notFound } from "next/navigation";
+import type { SecuritySession } from "@upstart13-com/aiden-security";
+import { abilities } from "@/lib/abilities";
+import { apiGet } from "@/lib/api-client";
+import type { MeResponse } from "@/lib/api-types";
 
-/** Session + membership for a page; signed-out users go to login, no-org users get a 404. */
-export async function getPageContext(callbackUrl: string) {
-  const session = await auth();
-  if (!session?.user?.id) redirect(`/login?callbackUrl=${callbackUrl}`);
+/** The signed-in user, from `GET /api/me`. Signed-out callers are sent to login. */
+export function getMe(): Promise<MeResponse> {
+  return apiGet<MeResponse>("/api/me");
+}
 
-  const ctx = await findMembership(session.user.id);
-  if (!ctx) notFound();
+/**
+ * Whether the user may perform an org action. Only for deciding what to
+ * render: the API routes enforce the same abilities on every request.
+ */
+export function viewerCan(me: MeResponse, action: string): boolean {
+  const session: SecuritySession = {
+    user: { id: me.id, email: me.email, name: me.name, image: me.image, roles: [] },
+  };
+  return abilities.can(session, action, me.membership ?? undefined);
+}
 
-  return { session, ctx };
+/** For pages inside an org: users with no membership get a 404. */
+export async function getViewer() {
+  const me = await getMe();
+  if (!me.membership) notFound();
+  return { me, membership: me.membership };
 }

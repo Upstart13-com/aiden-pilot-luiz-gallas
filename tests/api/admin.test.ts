@@ -8,7 +8,11 @@ import { resetFixtures } from "../support/db";
 import { actAs, membershipId, orgId, userId } from "../support/fixtures";
 import { call } from "../support/http";
 
-const USAGE_IDS = ["test_usage_acme_triage", "test_usage_acme_draft", "test_usage_globex"];
+const USAGE_IDS = [
+  "test_usage_acme_triage",
+  "test_usage_acme_draft",
+  "test_usage_globex",
+];
 
 beforeAll(async () => {
   const [acme, globex] = [await orgId("acme"), await orgId("globex")];
@@ -97,7 +101,9 @@ describe("7b PATCH /api/admin/members/[id]", () => {
 
   it("hides another org's members with 404", async () => {
     await actAs("globexOwner");
-    expect((await setRole(await membershipId("acmeAgent2"), "viewer")).status).toBe(404);
+    expect(
+      (await setRole(await membershipId("acmeAgent2"), "viewer")).status,
+    ).toBe(404);
   });
 
   it("refuses to let the last owner demote themself (400)", async () => {
@@ -112,12 +118,16 @@ describe("7b PATCH /api/admin/members/[id]", () => {
 
   it("rejects an unknown role with 400", async () => {
     await actAs("acmeOwner");
-    expect((await setRole(await membershipId("acmeAgent2"), "admin")).status).toBe(400);
+    expect(
+      (await setRole(await membershipId("acmeAgent2"), "admin")).status,
+    ).toBe(400);
   });
 
   it("forbids agents from changing roles (403)", async () => {
     await actAs("acmeAgent");
-    expect((await setRole(await membershipId("acmeAgent2"), "viewer")).status).toBe(403);
+    expect(
+      (await setRole(await membershipId("acmeAgent2"), "viewer")).status,
+    ).toBe(403);
   });
 });
 
@@ -130,17 +140,33 @@ describe("7c GET /api/admin/audit", () => {
     });
     const allowed = new Set(acmeMembers.map((m) => m.userId));
 
-    const { status, json } = await call(readAudit, "GET", { query: { limit: "200" } });
+    const { status, json } = await call(readAudit, "GET", {
+      query: { limit: "200" },
+    });
     expect(status).toBe(200);
     expect(json.entries.length).toBeGreaterThan(0);
-    for (const entry of json.entries) expect(allowed.has(entry.actorId)).toBe(true);
+    for (const entry of json.entries)
+      expect(allowed.has(entry.actorId)).toBe(true);
   });
 
   it("excludes entries by other orgs' members", async () => {
     await actAs("acmeOwner");
     const globexOwner = await userId("globexOwner");
     const { json } = await call(readAudit, "GET", { query: { limit: "200" } });
-    expect(json.entries.some((e: { actorId: string }) => e.actorId === globexOwner)).toBe(false);
+    expect(
+      json.entries.some((e: { actorId: string }) => e.actorId === globexOwner),
+    ).toBe(false);
+  });
+
+  it("returns actor emails and the org's event names", async () => {
+    await actAs("acmeOwner");
+    const { json } = await call(readAudit, "GET", { query: { limit: "200" } });
+    expect(json.events).toContain("member.role_changed");
+    expect([...json.events].sort()).toEqual(json.events);
+    const withActor = json.entries.find(
+      (e: { actorId: string | null }) => e.actorId,
+    );
+    expect(withActor.actorEmail).toMatch(/@acme\.test$/);
   });
 
   it("filters by event", async () => {
@@ -149,12 +175,15 @@ describe("7c GET /api/admin/audit", () => {
       query: { event: "member.role_changed" },
     });
     expect(json.entries.length).toBeGreaterThan(0);
-    for (const entry of json.entries) expect(entry.event).toBe("member.role_changed");
+    for (const entry of json.entries)
+      expect(entry.event).toBe("member.role_changed");
   });
 
   it("rejects a page size over 200 with 400", async () => {
     await actAs("acmeOwner");
-    expect((await call(readAudit, "GET", { query: { limit: "201" } })).status).toBe(400);
+    expect(
+      (await call(readAudit, "GET", { query: { limit: "201" } })).status,
+    ).toBe(400);
   });
 });
 
@@ -182,11 +211,22 @@ describe("7d GET /api/admin/usage", () => {
     });
     for (const group of expected) {
       const reported = json.byFeature.find(
-        (f: { feature: string | null }) => f.feature === group.feature
+        (f: { feature: string | null }) => f.feature === group.feature,
       );
       expect(reported.costUSD).toBeCloseTo(Number(group._sum.costUSD ?? 0));
     }
     expect(json.byFeature).toHaveLength(expected.length);
+  });
+
+  it("breaks spend down by member", async () => {
+    await actAs("acmeOwner");
+    const { json } = await call(readUsage, "GET");
+    expect(Array.isArray(json.byUser)).toBe(true);
+    const calls = json.byUser.reduce(
+      (n: number, u: { calls: number }) => n + u.calls,
+      0,
+    );
+    expect(calls).toBe(json.totals.allTime.calls);
   });
 
   it("shows another org only its own spend", async () => {

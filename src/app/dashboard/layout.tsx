@@ -5,8 +5,7 @@ import { Building2 } from "lucide-react";
 import { AppShell } from "@/components/app-shell";
 import { EmptyState } from "@/components/empty-state";
 import { auth } from "@/lib/auth";
-import { abilities } from "@/lib/abilities";
-import { findMembership } from "@/lib/membership";
+import { getMe, viewerCan } from "@/lib/page-context";
 
 export default async function DashboardLayout({
   children,
@@ -17,16 +16,12 @@ export default async function DashboardLayout({
   if (!session?.user?.id) redirect("/login?callbackUrl=/dashboard");
 
   const user = session.user as User & { id: string };
-  const membership = await findMembership(user.id);
-  const showAdmin = abilities.can(
-    session as never,
-    "org.members.manage",
-    membership,
-  );
+  const me = await getMe();
+  const showAdmin = viewerCan(me, "org.members.manage");
 
   return (
     <AppShell user={user} showAdmin={showAdmin}>
-      {membership ? (
+      {me.membership ? (
         children
       ) : (
         <EmptyState

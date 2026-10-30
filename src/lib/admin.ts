@@ -53,9 +53,19 @@ export async function listAuditEntries(
     ...(opts.cursor ? { cursor: { id: opts.cursor }, skip: 1 } : {}),
   });
 
-  const entries = rows.slice(0, opts.limit);
-  const nextCursor =
-    rows.length > opts.limit ? entries[entries.length - 1].id : null;
+  const page = rows.slice(0, opts.limit);
+  const nextCursor = rows.length > opts.limit ? page[page.length - 1].id : null;
+
+  const actors = await prisma.user.findMany({
+    where: { id: { in: page.flatMap((e) => (e.actorId ? [e.actorId] : [])) } },
+    select: { id: true, email: true },
+  });
+  const emailById = new Map(actors.map((a) => [a.id, a.email]));
+  const entries = page.map((e) => ({
+    ...e,
+    actorEmail: e.actorId ? (emailById.get(e.actorId) ?? null) : null,
+  }));
+
   return { entries, nextCursor };
 }
 
@@ -69,20 +79,22 @@ export async function getUsageSummary(orgId: string) {
     _count: { _all: true },
   } as const;
 
-  const [allTime, last30Days, byFeature, byModel, recent] = await Promise.all([
-    prisma.aIUsage.aggregate({ where: org, ...sums }),
-    prisma.aIUsage.aggregate({
-      where: { ...org, createdAt: { gte: since } },
-      ...sums,
-    }),
-    prisma.aIUsage.groupBy({ by: ["feature"], where: org, ...sums }),
-    prisma.aIUsage.groupBy({ by: ["model"], where: org, ...sums }),
-    prisma.aIUsage.findMany({
-      where: org,
-      orderBy: { createdAt: "desc" },
-      take: 20,
-    }),
-  ]);
+  const [allTime, last30Days, byFeature, byModel, byUserRows, recent] =
+    await Promise.all([
+      prisma.aIUsage.aggregate({ where: org, ...sums }),
+      prisma.aIUsage.aggregate({
+        where: { ...org, createdAt: { gte: since } },
+        ...sums,
+      }),
+      prisma.aIUsage.groupBy({ by: ["feature"], where: org, ...sums }),
+      prisma.aIUsage.groupBy({ by: ["model"], where: org, ...sums }),
+      prisma.aIUsage.groupBy({ by: ["userId"], where: org, ...sums }),
+      prisma.aIUsage.findMany({
+        where: org,
+        orderBy: { createdAt: "desc" },
+        take: 20,
+      }),
+    ]);
 
   const total = (a: typeof allTime) => ({
     costUSD: Number(a._sum.costUSD ?? 0),
@@ -90,10 +102,23 @@ export async function getUsageSummary(orgId: string) {
     calls: a._count._all,
   });
 
+  const users = await prisma.user.findMany({
+    where: {
+      id: { in: byUserRows.flatMap((g) => (g.userId ? [g.userId] : [])) },
+    },
+    select: { id: true, email: true },
+  });
+  const emailById = new Map(users.map((u) => [u.id, u.email]));
+
   return {
     totals: { allTime: total(allTime), last30Days: total(last30Days) },
     byFeature: byFeature.map((g) => ({ feature: g.feature, ...total(g) })),
     byModel: byModel.map((g) => ({ model: g.model, ...total(g) })),
+    byUser: byUserRows.map((g) => ({
+      userId: g.userId,
+      email: g.userId ? (emailById.get(g.userId) ?? null) : null,
+      ...total(g),
+    })),
     recent: recent.map((r) => ({ ...r, costUSD: Number(r.costUSD) })),
   };
 }

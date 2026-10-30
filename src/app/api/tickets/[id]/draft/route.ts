@@ -14,15 +14,15 @@ import { abilities } from "@/lib/abilities";
 import { defaultAI } from "@/lib/ai";
 import { withAIStreamCall } from "@/lib/ai-usage";
 import { requireMembership } from "@/lib/membership";
-import { assertTicketVisible } from "@/lib/tickets";
-import { prisma } from "@/lib/prisma";
+import { findVisibleTicket } from "@/lib/tickets";
+import {
+  DRAFT_MAX_TOKENS,
+  DRAFT_SYSTEM_PROMPT,
+  fenceTicket,
+} from "@/lib/prompts";
 import { DraftBody, RouteParams } from "@/lib/validation/ticket";
 
 type Params = Promise<{ id: string }>;
-
-const DRAFT_SYSTEM_PROMPT =
-  "You are a support agent drafting a reply to a customer. Write only the " +
-  "reply body: no subject line, no placeholders, no internal notes.";
 
 export const POST = withAuth<Params>(
   withRateLimit<AuthHandlerContext<Params>>(
@@ -35,10 +35,7 @@ export const POST = withAuth<Params>(
       const ctx = await requireMembership(session.user.id);
       assertCan(abilities, session, "ai.invoke", ctx);
 
-      const ticket = await prisma.ticket.findFirst({
-        where: { id, orgId: ctx.orgId },
-      });
-      assertTicketVisible(ticket, ctx);
+      const ticket = await findVisibleTicket(id, ctx);
 
       const client = await defaultAI();
       const stream = await withAIStreamCall(
@@ -49,9 +46,10 @@ export const POST = withAuth<Params>(
             messages: [
               {
                 role: "user",
-                content: `Tone: ${tone}\n\nSubject: ${ticket.subject}\n\n${ticket.body}`,
+                content: `Tone: ${tone}\n\n${fenceTicket(ticket)}`,
               },
             ],
+            maxTokens: DRAFT_MAX_TOKENS,
           }),
       );
 

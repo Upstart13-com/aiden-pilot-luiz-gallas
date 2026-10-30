@@ -47,13 +47,16 @@ model Ticket {
   updatedAt DateTime  @updatedAt @map("updated_at")
 
   org      Org   @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  owner    User  @relation("TicketOwner", fields: [ownerId], references: [id])
-  assignee User? @relation("TicketAssignee", fields: [assigneeId], references: [id])
+  owner    User  @relation("TicketOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  assignee User? @relation("TicketAssignee", fields: [assigneeId], references: [id], onDelete: Cascade)
 
   // Every index leads with orgId — tenant isolation is an index-level
   // property here, not only a convention in the query layer.
+  @@index([orgId])
   @@index([orgId, status])
   @@index([orgId, ownerId])
   @@index([orgId, assigneeId])
+  @@index([ownerId])
+  @@index([assigneeId])
   @@map("tickets")
 }

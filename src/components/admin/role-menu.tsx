@@ -121,7 +121,10 @@ export function RoleMenu({
                       disabled={saving}
                     >
                       {saving && (
-                        <Loader2 className="mr-1.5 size-4 animate-spin" />
+                        <Loader2
+                          className="mr-1.5 size-4 animate-spin"
+                          strokeWidth={1.5}
+                        />
                       )}
                       {ROLES[field.value]}
                       <ChevronDown

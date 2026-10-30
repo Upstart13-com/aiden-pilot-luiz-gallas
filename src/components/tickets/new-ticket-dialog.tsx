@@ -30,7 +30,12 @@ import { CreateTicketBody } from "@/lib/validation/ticket";
 const NewTicketForm = CreateTicketBody.pick({ subject: true, body: true });
 type NewTicketValues = z.infer<typeof NewTicketForm>;
 
-export function NewTicketDialog() {
+export function NewTicketDialog({
+  variant = "default",
+}: {
+  /** The page header holds the primary CTA; other placements use "outline". */
+  variant?: "default" | "outline";
+}) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const form = useForm<NewTicketValues>({
@@ -74,7 +79,7 @@ export function NewTicketDialog() {
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogTrigger asChild>
-        <Button size="sm">
+        <Button size="sm" variant={variant}>
           <Plus className="mr-1.5 size-4" strokeWidth={1.5} />
           New ticket
         </Button>
@@ -139,7 +144,10 @@ export function NewTicketDialog() {
           >
             {form.formState.isSubmitting ? (
               <>
-                <Loader2 className="mr-2 size-4 animate-spin" />
+                <Loader2
+                  className="mr-2 size-4 animate-spin"
+                  strokeWidth={1.5}
+                />
                 Creating…
               </>
             ) : (

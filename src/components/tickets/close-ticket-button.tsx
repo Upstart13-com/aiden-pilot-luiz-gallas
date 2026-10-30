@@ -72,7 +72,10 @@ export function CloseTicketButton({
           <Button onClick={handleClose} disabled={closing}>
             {closing ? (
               <>
-                <Loader2 className="mr-2 size-4 animate-spin" />
+                <Loader2
+                  className="mr-2 size-4 animate-spin"
+                  strokeWidth={1.5}
+                />
                 Closing…
               </>
             ) : (

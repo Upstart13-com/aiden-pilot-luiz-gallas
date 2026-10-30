@@ -42,6 +42,6 @@ export async function membershipId(persona: Persona): Promise<string> {
 /** Make the mocked `auth()` return this persona's session. */
 export async function actAs(persona: Persona | null): Promise<void> {
   signInAs(
-    persona ? { id: await userId(persona), email: PERSONAS[persona] } : null
+    persona ? { id: await userId(persona), email: PERSONAS[persona] } : null,
   );
 }

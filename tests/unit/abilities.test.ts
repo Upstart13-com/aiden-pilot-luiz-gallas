@@ -11,8 +11,19 @@ const can = (resource: unknown, action: string) =>
 
 // The persona table, row by row.
 const MATRIX = {
-  owner: ["ticket.read", "org.members.manage", "org.audit.read", "org.usage.read"],
-  agent: ["ticket.read", "ticket.create", "ticket.update", "ticket.close", "ai.invoke"],
+  owner: [
+    "ticket.read",
+    "org.members.manage",
+    "org.audit.read",
+    "org.usage.read",
+  ],
+  agent: [
+    "ticket.read",
+    "ticket.create",
+    "ticket.update",
+    "ticket.close",
+    "ai.invoke",
+  ],
   viewer: ["ticket.read"],
 } as const;
 

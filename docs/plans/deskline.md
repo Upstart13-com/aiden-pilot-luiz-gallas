@@ -106,11 +106,15 @@ reads `providerModels.<name>.model`.
 
 ### 1.5 Deviations during build
 
-| #   | Phase | Deviation                                                                                                                                                                                                                                        |
-| --- | ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| DV1 | 2     | **Abilities are a role → action matrix** following the persona table ([§3.4](#34-abilities-srclibabilitiests)). Owners read every ticket and manage members, audit and usage, but do **not** create, update or close tickets or invoke AI (403). |
-| DV2 | 2     | **The starter's global `audit.read` / `audit.export` / `users.manage` rules are removed.** The starter `/admin` pages and admin API routes deny every request until Phase 7 replaces them.                                                       |
-| DV3 | 2     | **No org membership → 404, not 403.** Every denial outside role capability is a 404, with no exception ([§3.6](#36-membership-resolver-srclibmembershipts)).                                                                                     |
+| #   | Phase | Deviation                                                                                                                                                                                                                                                                                                                |
+| --- | ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| DV1 | 2     | **Abilities are a role → action matrix** following the persona table ([§3.4](#34-abilities-srclibabilitiests)). Owners read every ticket and manage members, audit and usage, but do **not** create, update or close tickets or invoke AI (403).                                                                         |
+| DV2 | 2     | **The starter's global `audit.read` / `audit.export` / `users.manage` rules are removed.** The starter `/admin` pages and admin API routes deny every request until Phase 7 replaces them.                                                                                                                               |
+| DV3 | 2     | **No org membership → 404, not 403.** Every denial outside role capability is a 404, with no exception ([§3.6](#36-membership-resolver-srclibmembershipts)).                                                                                                                                                             |
+| DV4 | 2–8   | **Ticket visibility moved into the query** (`findVisibleTicket`), confirmed by `assertOwnership` on the result; the earlier `assertTicketVisible`/`assertTicketOwner` wrappers and their inline id comparison are gone ([§3.2](#32-canonical-request-perimeter)).                                                        |
+| DV5 | 4–6   | **AI hardening:** ticket text is JSON-fenced in the user message and both system prompts forbid following it or revealing instructions; per-route `maxTokens`; creating or editing ticket content also requires `ai.invoke`; one shared AI client; the starter's ungated `/api/ai/chat` route and chat page are removed. |
+| DV6 | 8     | **Pages never touch the database.** Server-rendered pages read through the app's own API routes, so every read crosses the same perimeter as the browser's requests.                                                                                                                                                     |
+| DV7 | 1     | **Relation hygiene:** every FK to `User` and `Org` cascades on delete; `Ticket` gains `@@index([orgId])`, `@@index([ownerId])` and `@@index([assigneeId])`, and `AIUsage` gains `@@index([userId])`.                                                                                                                     |
 
 ## 2. Dimension 1 — Domain & data model
 
@@ -349,11 +353,9 @@ export const PATCH = withAuth<RouteParams>(async (req, { session, params }) => {
   // 4. assertCan           → 403 if this ROLE may not perform this VERB
   assertCan(abilities, session, "ticket.update", { role });
 
-  // 5. org-scoped query    → the tenant filter is in the WHERE clause, always
-  const ticket = await prisma.ticket.findFirst({ where: { id, orgId } });
-
-  // 6. row visibility      → 404 if this row is not visible to this caller
-  assertTicketVisible(ticket, { role, userId: session.user.id });
+  // 5. scoped query        → org (and, for agents, own/assigned) in the WHERE clause
+  // 6. assertOwnership     → no row becomes a 404 + security.ownership_failed
+  const ticket = await findVisibleTicket(id, ctx);
 
   // 7. mutate + audit
   const updated = await prisma.ticket.update({ where: { id: ticket.id }, data: { ... } });
@@ -364,9 +366,20 @@ export const PATCH = withAuth<RouteParams>(async (req, { session, params }) => {
 });
 ```
 
-Steps 5 and 6 together are the IDOR guard. Step 5 alone already makes a cross-tenant id return
-`null`; step 6 turns that `null` into a 404 **and** emits the SDK's
-`security.ownership_failed` audit event.
+Steps 5 and 6 together are the IDOR guard, and they are a deliberate **two-step**:
+
+1. **Tenant scoping is enforced at the query level.** `findVisibleTicket` adds
+   `ticketVisibilityWhere(ctx)` to the lookup — the caller's `orgId`, plus own-or-assigned for
+   agents. A cross-tenant id, or another agent's ticket, simply matches no row. No code ever
+   compares ids after the fact.
+2. **`assertOwnership` confirms it.** The curriculum's signature is
+   `assertOwnership(row, userId)`, and a missing row is exactly what it turns into a 404 (plus
+   the SDK's `security.ownership_failed` audit event). Because step 1 already removed every row
+   the caller may not see, "doesn't exist" and "not yours" reach the same 404.
+
+The list route uses the same `ticketVisibilityWhere`, so lists and single-ticket lookups can't
+disagree. Every route calls `withAuth`; the only exception would be webhooks, and Deskline
+has none in core scope.
 
 ### 3.3 Row visibility matrix
 
@@ -443,42 +456,12 @@ actions, three roles, two predicate shapes.
 
 ### 3.5 The `assertOwnership` field gap
 
-Per **D2** the schema keeps `ownerId`, so the SDK guard cannot be called on the row directly.
-A thin **assertion-function wrapper** delegates to it, which preserves the 404 status, the
-`security.ownership_failed` audit event, _and_ TypeScript narrowing (which a bare projected
-object would lose):
-
-```ts
-// src/lib/tickets.ts
-import { assertOwnership } from "@/lib/security";
-
-/** Delegates to the SDK guard while mapping `ownerId` → the `userId` field it expects. */
-export function assertTicketOwner<T extends { id: string; ownerId: string }>(
-  ticket: T | null | undefined,
-  userId: string,
-): asserts ticket is T {
-  assertOwnership(
-    ticket ? { id: ticket.id, userId: ticket.ownerId } : null,
-    userId,
-  );
-}
-
-/** Full visibility guard — owner/viewer see the org, agents see only their own rows. */
-export function assertTicketVisible<
-  T extends { id: string; ownerId: string; assigneeId: string | null },
->(
-  ticket: T | null | undefined,
-  ctx: { role: MembershipRole; userId: string },
-): asserts ticket is T {
-  if (!ticket) assertOwnership(null, ctx.userId); // → 404 + audit event
-  if (ctx.role === "agent" && ticket!.assigneeId !== ctx.userId) {
-    assertTicketOwner(ticket, ctx.userId); // → 404 unless they own it
-  }
-}
-```
-
-This **extends** the SDK primitive rather than reimplementing it — every 404 still originates
-from `OwnershipError` inside `aiden-security`. Gap **G1** is filed upstream in parallel.
+`assertOwnership` is hard-typed to a `userId` field, while a Ticket names its owner `ownerId`
+(D2), and agents may also see tickets assigned to them. So ownership is not checked by
+comparing fields on the row: the visibility rule lives in the query (§3.2, step 1), and
+`assertOwnership` is called on the result of that scoped query, where "no row" is the only
+failure left. This keeps every 404 coming from `OwnershipError` inside `aiden-security`. Gap
+**G1** is still worth raising upstream.
 
 ### 3.6 Membership resolver (`src/lib/membership.ts`)
 

@@ -24,10 +24,11 @@ model AIUsage {
   latencyMs Int      @map("latency_ms")
   createdAt DateTime @default(now()) @map("created_at")
 
-  // Nullable + SetNull so a usage row survives its org being deleted, and
-  // so the sink never throws when it fires outside a request context.
-  org Org? @relation(fields: [orgId], references: [id], onDelete: SetNull)
+  // Nullable so the sink never throws when it fires outside a request
+  // context; usage rows are removed with their org.
+  org Org? @relation(fields: [orgId], references: [id], onDelete: Cascade)
 
   @@index([orgId, createdAt])
+  @@index([userId])
   @@map("ai_usage")
 }

@@ -6,10 +6,11 @@ import { withAICall } from "@/lib/ai-usage";
 import { log } from "@/lib/logger";
 import type { MembershipContext } from "@/lib/membership";
 import { prisma } from "@/lib/prisma";
-
-const TRIAGE_SYSTEM_PROMPT =
-  "You triage customer support tickets. Classify the ticket's priority, " +
-  "a short category (one to three words), and the customer's sentiment.";
+import {
+  TRIAGE_MAX_TOKENS,
+  TRIAGE_SYSTEM_PROMPT,
+  fenceTicket,
+} from "@/lib/prompts";
 
 const TRIAGE_SCHEMA = {
   type: "object",
@@ -44,10 +45,9 @@ export async function triageTicket(
       () =>
         client.complete({
           system: TRIAGE_SYSTEM_PROMPT,
-          messages: [
-            { role: "user", content: `${ticket.subject}\n\n${ticket.body}` },
-          ],
+          messages: [{ role: "user", content: fenceTicket(ticket) }],
           responseSchema: TRIAGE_SCHEMA,
+          maxTokens: TRIAGE_MAX_TOKENS,
         }),
     );
 

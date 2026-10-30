@@ -1,9 +1,8 @@
 import { PageHeader } from "@upstart13-com/aiden-ui";
 import { AuditLogTable } from "@upstart13-com/aiden-ui/components/audit-log-table";
 import { EventFilter } from "@/components/admin/event-filter";
-import { listAuditEntries, listAuditEvents } from "@/lib/admin";
-import { getPageContext } from "@/lib/page-context";
-import { prisma } from "@/lib/prisma";
+import { apiGet } from "@/lib/api-client";
+import type { AuditResponse } from "@/lib/api-types";
 
 export const dynamic = "force-dynamic";
 
@@ -12,25 +11,17 @@ export default async function AuditPage({
 }: {
   searchParams: Promise<{ event?: string }>;
 }) {
-  const { ctx } = await getPageContext("/admin/audit");
   const { event } = await searchParams;
-  const [{ entries }, events] = await Promise.all([
-    listAuditEntries(ctx.orgId, { event, limit: 100 }),
-    listAuditEvents(ctx.orgId),
-  ]);
+  const query = new URLSearchParams({ limit: "100" });
+  if (event) query.set("event", event);
+  const { entries, events } = await apiGet<AuditResponse>(
+    `/api/admin/audit?${query}`,
+  );
 
   // The table shows `actorId` as-is; show the actor's email instead.
-  const actors = await prisma.user.findMany({
-    where: {
-      id: { in: entries.flatMap((e) => (e.actorId ? [e.actorId] : [])) },
-    },
-    select: { id: true, email: true },
-  });
-  const emailById = new Map(actors.map((a) => [a.id, a.email]));
   const rows = entries.map((e) => ({
     ...e,
-    actorId: e.actorId ? (emailById.get(e.actorId) ?? e.actorId) : null,
-    metadata: e.metadata as Record<string, unknown> | null,
+    actorId: e.actorEmail ?? e.actorId,
   }));
 
   return (

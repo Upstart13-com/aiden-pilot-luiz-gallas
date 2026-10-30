@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { withAuth, assertCan, RequestValidationError } from "@/lib/security";
 import { abilities } from "@/lib/abilities";
-import { listAuditEntries } from "@/lib/admin";
+import { listAuditEntries, listAuditEvents } from "@/lib/admin";
 import { requireMembership } from "@/lib/membership";
 import { AuditQuery } from "@/lib/validation/admin";
 
@@ -13,5 +13,9 @@ export const GET = withAuth(async (req, { session }) => {
   const ctx = await requireMembership(session.user.id);
   assertCan(abilities, session, "org.audit.read", ctx);
 
-  return NextResponse.json(await listAuditEntries(ctx.orgId, parsed.data));
+  const [page, events] = await Promise.all([
+    listAuditEntries(ctx.orgId, parsed.data),
+    listAuditEvents(ctx.orgId),
+  ]);
+  return NextResponse.json({ ...page, events });
 });

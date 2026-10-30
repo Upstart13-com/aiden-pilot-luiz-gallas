@@ -10,9 +10,9 @@ import {
 } from "@upstart13-com/aiden-ui";
 import { EmptyState } from "@/components/empty-state";
 import { MetricCard } from "@/components/metric-card";
-import { getUsageSummary } from "@/lib/admin";
+import { apiGet } from "@/lib/api-client";
+import type { UsageResponse } from "@/lib/api-types";
 import { formatDateTime, formatNumber, formatUSD } from "@/lib/format";
-import { getPageContext } from "@/lib/page-context";
 
 export const dynamic = "force-dynamic";
 
@@ -75,8 +75,7 @@ function BreakdownTable({ title, rows }: { title: string; rows: Breakdown[] }) {
 }
 
 export default async function CostPage() {
-  const { ctx } = await getPageContext("/admin/cost");
-  const usage = await getUsageSummary(ctx.orgId);
+  const usage = await apiGet<UsageResponse>("/api/admin/usage");
   const { allTime, last30Days } = usage.totals;
 
   return (
@@ -119,6 +118,14 @@ export default async function CostPage() {
           </div>
         ) : (
           <>
+            <BreakdownTable
+              title="By member"
+              rows={usage.byUser.map((u) => ({
+                key: u.email ?? "Unknown member",
+                ...u,
+              }))}
+            />
+
             <div className="grid gap-8 lg:grid-cols-2">
               <BreakdownTable
                 title="By feature"

@@ -1,7 +1,14 @@
 import { afterAll, describe, expect, it, vi } from "vitest";
-import { GET as listTickets, POST as createTicket } from "@/app/api/tickets/route";
-import { GET as getTicket, PATCH as updateTicket } from "@/app/api/tickets/[id]/route";
+import {
+  GET as listTickets,
+  POST as createTicket,
+} from "@/app/api/tickets/route";
+import {
+  GET as getTicket,
+  PATCH as updateTicket,
+} from "@/app/api/tickets/[id]/route";
 import { POST as closeTicket } from "@/app/api/tickets/[id]/close/route";
+import { GET as ticketSummary } from "@/app/api/tickets/summary/route";
 import { prisma } from "@/lib/prisma";
 import { deleteFakeUsage, deleteTickets, resetFixtures } from "../support/db";
 import { TICKETS, actAs, orgId, userId } from "../support/fixtures";
@@ -44,23 +51,33 @@ describe("3a GET /api/tickets", () => {
   it("lists only the caller's org for an owner", async () => {
     await actAs("acmeOwner");
     const acme = await orgId("acme");
-    const { status, json } = await call(listTickets, "GET", { query: { limit: "100" } });
+    const { status, json } = await call(listTickets, "GET", {
+      query: { limit: "100" },
+    });
     expect(status).toBe(200);
     expect(json.tickets.length).toBeGreaterThanOrEqual(4);
-    expect(json.tickets.every((t: { orgId: string }) => t.orgId === acme)).toBe(true);
+    expect(json.tickets.every((t: { orgId: string }) => t.orgId === acme)).toBe(
+      true,
+    );
   });
 
   it("lists the whole org for a viewer", async () => {
     await actAs("acmeViewer");
-    const { status, json } = await call(listTickets, "GET", { query: { limit: "100" } });
+    const { status, json } = await call(listTickets, "GET", {
+      query: { limit: "100" },
+    });
     expect(status).toBe(200);
-    expect(json.tickets.map((t: { id: string }) => t.id)).toContain(TICKETS.otherAgent);
+    expect(json.tickets.map((t: { id: string }) => t.id)).toContain(
+      TICKETS.otherAgent,
+    );
   });
 
   it("lists only own or assigned tickets for an agent", async () => {
     await actAs("acmeAgent");
     const me = await userId("acmeAgent");
-    const { json } = await call(listTickets, "GET", { query: { limit: "100" } });
+    const { json } = await call(listTickets, "GET", {
+      query: { limit: "100" },
+    });
     const ids = json.tickets.map((t: { id: string }) => t.id);
     expect(ids).toContain(TICKETS.agentOwned);
     expect(ids).toContain(TICKETS.agentAssigned);
@@ -72,8 +89,12 @@ describe("3a GET /api/tickets", () => {
 
   it("filters by status", async () => {
     await actAs("acmeOwner");
-    const { json } = await call(listTickets, "GET", { query: { status: "resolved" } });
-    expect(json.tickets.map((t: { id: string }) => t.id)).toEqual([TICKETS.ownerOnly]);
+    const { json } = await call(listTickets, "GET", {
+      query: { status: "resolved" },
+    });
+    expect(json.tickets.map((t: { id: string }) => t.id)).toEqual([
+      TICKETS.ownerOnly,
+    ]);
   });
 
   it("pages with a cursor without repeating tickets", async () => {
@@ -91,8 +112,12 @@ describe("3a GET /api/tickets", () => {
 
   it("rejects an invalid query with 400", async () => {
     await actAs("acmeOwner");
-    expect((await call(listTickets, "GET", { query: { limit: "0" } })).status).toBe(400);
-    expect((await call(listTickets, "GET", { query: { status: "lost" } })).status).toBe(400);
+    expect(
+      (await call(listTickets, "GET", { query: { limit: "0" } })).status,
+    ).toBe(400);
+    expect(
+      (await call(listTickets, "GET", { query: { status: "lost" } })).status,
+    ).toBe(400);
   });
 });
 
@@ -118,6 +143,19 @@ describe("3b GET /api/tickets/[id]", () => {
   it("hides another agent's ticket from an agent with 404", async () => {
     await actAs("acmeAgent");
     expect((await get(TICKETS.otherAgent)).status).toBe(404);
+  });
+
+  it("includes the owner's and assignee's names", async () => {
+    await actAs("acmeAgent");
+    const { json } = await get(TICKETS.agentAssigned);
+    expect(json.ticket.owner).toEqual({
+      name: "Ada Owner",
+      email: "owner@acme.test",
+    });
+    expect(json.ticket.assignee).toEqual({
+      name: "Alex Agent",
+      email: "agent@acme.test",
+    });
   });
 
   it("hides another org's ticket with 404", async () => {
@@ -158,7 +196,11 @@ describe("3c POST /api/tickets", () => {
   it("accepts an assignee from the same org", async () => {
     await actAs("acmeAgent");
     const assigneeId = await userId("acmeAgent2");
-    const { status, json } = await create({ subject: "s", body: "b", assigneeId });
+    const { status, json } = await create({
+      subject: "s",
+      body: "b",
+      assigneeId,
+    });
     expect(status).toBe(201);
     expect(json.ticket.assigneeId).toBe(assigneeId);
   });
@@ -166,7 +208,9 @@ describe("3c POST /api/tickets", () => {
   it("rejects an assignee from another org with 404", async () => {
     await actAs("acmeAgent");
     const assigneeId = await userId("globexAgent");
-    expect((await create({ subject: "s", body: "b", assigneeId })).status).toBe(404);
+    expect((await create({ subject: "s", body: "b", assigneeId })).status).toBe(
+      404,
+    );
   });
 
   it("rejects an empty body with 400", async () => {
@@ -185,28 +229,40 @@ describe("3c POST /api/tickets", () => {
 describe("3d PATCH /api/tickets/[id]", () => {
   it("lets an agent update their own ticket", async () => {
     await actAs("acmeAgent");
-    const { status, json } = await patch(TICKETS.agentOwned, { status: "pending" });
+    const { status, json } = await patch(TICKETS.agentOwned, {
+      status: "pending",
+    });
     expect(status).toBe(200);
     expect(json.ticket.status).toBe("pending");
   });
 
   it("hides another agent's ticket with 404", async () => {
     await actAs("acmeAgent");
-    expect((await patch(TICKETS.otherAgent, { status: "pending" })).status).toBe(404);
+    expect(
+      (await patch(TICKETS.otherAgent, { status: "pending" })).status,
+    ).toBe(404);
   });
 
   it("hides another org's ticket with 404 and changes nothing", async () => {
     await actAs("globexAgent");
-    expect((await patch(TICKETS.agentOwned, { subject: "hijack" })).status).toBe(404);
-    const row = await prisma.ticket.findUniqueOrThrow({ where: { id: TICKETS.agentOwned } });
+    expect(
+      (await patch(TICKETS.agentOwned, { subject: "hijack" })).status,
+    ).toBe(404);
+    const row = await prisma.ticket.findUniqueOrThrow({
+      where: { id: TICKETS.agentOwned },
+    });
     expect(row.subject).toBe("Card declined at checkout");
   });
 
   it("forbids viewers and owners from updating (403)", async () => {
     await actAs("acmeViewer");
-    expect((await patch(TICKETS.agentOwned, { subject: "x" })).status).toBe(403);
+    expect((await patch(TICKETS.agentOwned, { subject: "x" })).status).toBe(
+      403,
+    );
     await actAs("acmeOwner");
-    expect((await patch(TICKETS.agentOwned, { subject: "x" })).status).toBe(403);
+    expect((await patch(TICKETS.agentOwned, { subject: "x" })).status).toBe(
+      403,
+    );
   });
 
   it("rejects an empty body with 400", async () => {
@@ -249,5 +305,26 @@ describe("3e POST /api/tickets/[id]/close", () => {
     const second = await close(TICKETS.agentOwned);
     expect(second.status).toBe(200);
     expect(second.json.ticket.closedAt).toBe(first.json.ticket.closedAt);
+  });
+});
+
+describe("GET /api/tickets/summary", () => {
+  it("rejects signed-out callers with 401", async () => {
+    expect((await call(ticketSummary, "GET")).status).toBe(401);
+  });
+
+  it("counts only what the caller can see", async () => {
+    await actAs("acmeOwner");
+    const owner = (await call(ticketSummary, "GET")).json;
+    await actAs("acmeAgent");
+    const agent = (await call(ticketSummary, "GET")).json;
+
+    const total = (c: Record<string, number>) =>
+      c.open + c.pending + c.resolved + c.closed;
+    const acmeTickets = await prisma.ticket.count({
+      where: { orgId: await orgId("acme") },
+    });
+    expect(total(owner)).toBe(acmeTickets);
+    expect(total(agent)).toBeLessThan(total(owner));
   });
 });

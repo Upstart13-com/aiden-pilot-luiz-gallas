@@ -13,40 +13,30 @@ import { EmptyState } from "@/components/empty-state";
 import { MetricCard } from "@/components/metric-card";
 import { NewTicketDialog } from "@/components/tickets/new-ticket-dialog";
 import { PriorityBadge, StatusBadge } from "@/components/tickets/ticket-badges";
-import { abilities } from "@/lib/abilities";
+import { apiGet } from "@/lib/api-client";
+import type {
+  TicketListResponse,
+  TicketSummaryResponse,
+} from "@/lib/api-types";
 import { formatDate, formatNumber } from "@/lib/format";
-import { getPageContext } from "@/lib/page-context";
-import { prisma } from "@/lib/prisma";
-import { ticketVisibilityWhere } from "@/lib/tickets";
+import { getViewer, viewerCan } from "@/lib/page-context";
 
 export const dynamic = "force-dynamic";
 
 export default async function TicketsPage() {
-  const { session, ctx } = await getPageContext("/dashboard");
-  const where = ticketVisibilityWhere(ctx);
-
-  const [tickets, byStatus, urgent] = await Promise.all([
-    prisma.ticket.findMany({
-      where,
-      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-      take: 50,
-    }),
-    prisma.ticket.groupBy({ by: ["status"], where, _count: { _all: true } }),
-    prisma.ticket.count({
-      where: { ...where, priority: "urgent", status: { not: "closed" } },
-    }),
+  const { me, membership } = await getViewer();
+  const [{ tickets }, summary] = await Promise.all([
+    apiGet<TicketListResponse>("/api/tickets?limit=50"),
+    apiGet<TicketSummaryResponse>("/api/tickets/summary"),
   ]);
-
-  const count = (status: string) =>
-    byStatus.find((s) => s.status === status)?._count._all ?? 0;
-  const canCreate = abilities.can(session as never, "ticket.create", ctx);
+  const canCreate = viewerCan(me, "ticket.create");
 
   return (
     <div>
       <PageHeader
         title="Tickets"
         subtitle={
-          ctx.role === "agent"
+          membership.role === "agent"
             ? "Tickets you opened or that are assigned to you."
             : "Every ticket in your organization."
         }
@@ -57,22 +47,22 @@ export default async function TicketsPage() {
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <MetricCard
             label="Open"
-            value={formatNumber(count("open"))}
+            value={formatNumber(summary.open)}
             caption="Waiting on your team"
           />
           <MetricCard
             label="Pending"
-            value={formatNumber(count("pending"))}
+            value={formatNumber(summary.pending)}
             caption="Waiting on the customer"
           />
           <MetricCard
             label="Resolved"
-            value={formatNumber(count("resolved"))}
+            value={formatNumber(summary.resolved)}
             caption="Solved, not yet closed"
           />
           <MetricCard
             label="Urgent"
-            value={formatNumber(urgent)}
+            value={formatNumber(summary.urgent)}
             caption="Urgent and still active"
           />
         </div>
@@ -89,7 +79,9 @@ export default async function TicketsPage() {
                     ? "File the first customer issue and AI triage will prioritize it for you."
                     : "Tickets filed by your organization's agents will appear here."
                 }
-                action={canCreate ? <NewTicketDialog /> : undefined}
+                action={
+                  canCreate ? <NewTicketDialog variant="outline" /> : undefined
+                }
               />
             </div>
           ) : (

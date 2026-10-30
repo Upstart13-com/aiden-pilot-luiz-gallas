@@ -43,6 +43,8 @@ export const POST = withAuth(async (req, { session }) => {
 
   const ctx = await requireMembership(session.user.id);
   assertCan(abilities, session, "ticket.create", ctx);
+  // Creating a ticket runs AI triage, so the caller must be allowed to invoke AI.
+  assertCan(abilities, session, "ai.invoke", ctx);
   await assertAssigneeInOrg(body.assigneeId, ctx.orgId);
 
   const created = await prisma.ticket.create({
