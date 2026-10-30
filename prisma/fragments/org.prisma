@@ -1,0 +1,46 @@
+// Deskline — the tenant and its membership edge.
+//
+// `Membership` is the single source of truth for a user's role INSIDE an
+// org. It is deliberately not the AIDEN global `Role[]` m2m: that one is
+// app-wide, so a role granted there would apply across every tenant.
+// See docs/plans/deskline.md §1.1 (D1).
+
+/// The three roles a member can hold inside an org. A Postgres enum, so
+/// the database itself rejects a fourth — see docs/plans/deskline.md §10.
+enum MembershipRole {
+  owner
+  agent
+  viewer
+}
+
+model Org {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  memberships Membership[]
+  tickets     Ticket[]
+  aiUsage     AIUsage[]
+
+  @@map("orgs")
+}
+
+model Membership {
+  id        String         @id @default(cuid())
+  userId    String         @map("user_id")
+  orgId     String         @map("org_id")
+  role      MembershipRole @default(viewer)
+  createdAt DateTime       @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  org  Org  @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  // The natural many-to-many shape. v1 resolves a single membership per
+  // user (D4), but nothing here assumes that — lifting the scope boundary
+  // to multi-org needs no migration.
+  @@unique([userId, orgId])
+  @@index([orgId])
+  @@map("memberships")
+}

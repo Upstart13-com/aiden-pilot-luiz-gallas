@@ -72,17 +72,18 @@ app via `npx aiden upgrade`.
 | G3  | `AIUsageRecord` is a closed shape (`provider, model, *Tokens, costUSD, latencyMs, requestId?, userId?`). No passthrough for app metadata, so the sink cannot know the `orgId` or which feature spent the money.                                                                                                                                                                                                                               | `AsyncLocalStorage` call-context set by a `withAICall()` wrapper; the sink reads it ([§5.2](#52-ai-cost-telemetry)). **Proposed SDK fix:** `recordAIUsage({ ..., metadata?: Record<string, unknown> })`.                                                                                                                                                                                               |
 | G4  | CLAUDE.md mandates invoking the **`/frontend-design` skill** before any UI code, but **no such command exists** in `.claude/commands/` (present: `security-review`, `create-prd-tasks`, `review-fixes`, `validate`, `ship`, `create-feature`). Nothing in the repo defines what the skill would do.                                                                                                                                           | **Resolved — no skill is authored.** The available documentation is the authority: CLAUDE.md's Pre-Flight table plus `docs/design-system/*`. §6.1 turns those into the explicit, repeatable pre-flight the skill would have encoded, and that read is the binding gate. **Raise upstream:** correct the CLAUDE.md reference, or ship the skill in the starter so the step is reproducible across apps. |
 | G5  | `/api/dev/impersonate` is a no-op stub — it validates a role and echoes it back without mutating the session. It cannot be used to switch personas in a test harness.                                                                                                                                                                                                                                                                         | The security smoke suite authenticates each persona for real through the credentials provider and keeps a cookie jar per persona ([§8.2](#82-security-smoke-suite)).                                                                                                                                                                                                                                   |
-| G6  | **`.claude/hooks/check-design-system.sh` Rule 2 contradicts the design system.** The hook is live (PostToolUse on Edit/Write) and blocks the `rounded-lg` / `xl` / `2xl` / `3xl` scale with "Only avatars get rounded-full" — but CLAUDE.md:103 and `00-overview.md`:31 **mandate** `rounded-lg` for buttons/badges, `rounded-xl` for cards and `rounded-2xl` for modals. Every DS-correct Card, Button and Dialog would be blocked on write. | Narrow Rule 2 to what the DS actually forbids — radii **above** `rounded-2xl` (`rounded-3xl` and arbitrary values) — in Phase 0, before any UI work. One regex. Hook Rules 1 and 3 are correct and stay.                                                                                                                                                                                               |
+| G6  | **`.claude/hooks/check-design-system.sh` Rule 2 contradicts the design system.** The hook is live (PostToolUse on Edit/Write) and blocks the `rounded-lg` / `xl` / `2xl` / `3xl` scale with "Only avatars get rounded-full" — but CLAUDE.md:103 and `00-overview.md`:31 **mandate** `rounded-lg` for buttons/badges, `rounded-xl` for cards and `rounded-2xl` for modals. Every DS-correct Card, Button and Dialog would be blocked on write. | Narrow Rule 2 to what the DS actually forbids — radii **above** `rounded-2xl` (`rounded-3xl` and arbitrary values) — as the first step of **Phase 8**, before any UI code. One regex. Hook Rules 1 and 3 are correct and stay.                                                                                                                                                                         |
 
-### 1.4 Pre-existing breakage to clear first (Phase 0)
+### 1.4 Pre-existing breakage — OUT OF SCOPE
 
-`npx tsc --noEmit` currently fails with **7 errors** on a clean tree — these predate this
-work and must be cleared before anything is added, or the build's own validation signal is
-meaningless.
+> **Phase 0 was removed from this build on 2026-10-30.** Repairing pre-existing breakage is
+> no longer part of this work. The faults below remain in the tree and are tracked, not fixed.
+
+`npx tsc --noEmit` fails with **7 errors** on a clean tree. They predate this work:
 
 ```
 src/app/(marketing)/layout.tsx(20,9): TS4104  readonly [] not assignable to SiteFooterLink[]
-src/lib/ai.ts(19,35)  TS2339  Property 'model' does not exist on type 'false'   (×6, one per provider)
+src/lib/ai.ts(19,35)  TS2339  Property 'model' does not exist on type 'false'   (x6, one per provider)
 ```
 
 Cause (corroborated by `.claude/progress.log`, 2026-10-29 14:28 / 14:42): `aiden.config.ts`
@@ -90,10 +91,18 @@ was reshaped so `ai.providers.<name>` is a **boolean** (to satisfy the `aiden-cl
 config schema), but the companion `ai.models` map was never added and `src/lib/ai.ts` still
 reads `providerModels.<name>.model`.
 
-**Fix:** add an `ai.models` map to `aiden.config.ts`, point `src/lib/ai.ts` at it, and spread
-`app.footerLinks` into a mutable array at the call site. No SDK change.
+**Consequence for this build — read before trusting any green check:**
 
----
+1. **`tsc` is not a clean signal.** The gate becomes _no **new** errors beyond these 7_
+   ([§8.1](#81-per-change-validation)). A regression introduced by this work is detected by
+   the count changing, not by the suite being empty. This is strictly weaker than a clean
+   baseline and is the direct cost of dropping Phase 0.
+2. **The six `src/lib/ai.ts` errors sit on the critical path of Phase 4.** `defaultAI()`
+   ([§4.1](#41-provider-agnostic-wiring)) cannot resolve a model until `ai.models` exists.
+   That one repair is therefore **pulled into Phase 4** as a prerequisite, scoped to exactly
+   what the AI surface needs — not as general cleanup.
+3. **The `(marketing)/layout.tsx` error is untouched.** Nothing in this build imports it, so
+   it stays as found and stays in the count of 7.
 
 ## 2. Dimension 1 — Domain & data model
 
@@ -567,8 +576,10 @@ loop — is explicitly out of scope.
 
 ### 4.1 Provider-agnostic wiring
 
-`src/lib/ai.ts` already exposes lazy per-provider factories over `createAIClient`. Phase 0
-repairs it to read an `ai.models` map (see [§1.4](#14-pre-existing-breakage-to-clear-first-phase-0)).
+`src/lib/ai.ts` already exposes lazy per-provider factories over `createAIClient`, but it
+reads a `.model` field that `aiden.config.ts` no longer has. **Phase 4 repairs it** to read an
+`ai.models` map — Phase 0 is out of scope, so this repair now rides with the first feature that
+needs it (see [§1.4](#14-pre-existing-breakage--out-of-scope)).
 Add a single default resolver so routes never name a provider:
 
 ```ts
@@ -589,8 +600,8 @@ export const defaultAI = (): Promise<AIClient> =>
 
 Both AI routes call `defaultAI()`. **Switching providers live is one line** —
 `defaultProvider: "openai"` plus the matching env var — with no route changes. Provider SDKs
-are optional peer deps, so `npm install @anthropic-ai/sdk` is part of Phase 0 and nothing else
-is installed.
+are optional peer deps, so `npm install @anthropic-ai/sdk` is part of **Phase 4** — the first
+phase that makes a real provider call — and nothing else is installed.
 
 ### 4.2 Feature 1 — Draft reply (SSE streaming)
 
@@ -854,7 +865,7 @@ semantics). `03-forms.md`, `04-dialogs.md`, `06-navigation.md` and `07-feedback.
 **The automated backstop.** `.claude/hooks/check-design-system.sh` runs on every `.tsx`/`.jsx`
 write and blocks on hardcoded Tailwind color scales (Rule 1) and default exports in non-route
 files (Rule 3) — both correct, and both enforcing CLAUDE.md. Its Rule 2 currently contradicts
-the DS radius scale and is fixed in Phase 0 (gap **G6**). The hook is a backstop for two
+the DS radius scale and is fixed as the first step of Phase 8 (gap **G6**). The hook is a backstop for two
 mechanical rules, **not** a substitute for the pre-flight read: it cannot check token
 semantics, hierarchy, empty states, or whether a surface has one primary CTA.
 
@@ -1051,8 +1062,13 @@ After every implementation step, not just at the end:
 
 ```bash
 npm run lint          # must be clean
-npx tsc --noEmit      # must be clean — baseline is 7 pre-existing errors, see §1.4
+npx tsc --noEmit      # must report EXACTLY the 7 known pre-existing errors — no more
 ```
+
+Because Phase 0 is out of scope, `tsc` never reaches zero in this build. Compare the **count
+and the file list** against [§1.4](#14-pre-existing-breakage--out-of-scope), not against an
+empty result: an 8th error, or a different file, is a regression this work introduced. Phase 4
+drops the count to 1 when it repairs `src/lib/ai.ts` as its prerequisite.
 
 `npm run build` only before the PR. `/validate` runs the standard loop.
 
@@ -1135,38 +1151,43 @@ Run before the PR — mandatory, and enforced as a gate by `/ship`. Expected foc
 
 ## 9. Build sequence
 
+> **Phase 0 is out of scope** (removed 2026-10-30). Its four items are either dropped or
+> rehomed to the phase that actually needs them: the `src/lib/ai.ts` repair and the Anthropic
+> SDK install become **Phase 4** prerequisites, the `check-design-system.sh` fix becomes a
+> **Phase 8** prerequisite, and the `(marketing)/layout.tsx` error is left as found. The build
+> therefore starts at **Phase 1**.
+
 Phases 3 and 7 are built **one route at a time**, not as a batch. Each sub-step is a complete
 vertical slice — route, guards, audit event — and ends with its own smoke rows green. A route
 is not started until the previous one passes, so a perimeter regression is always attributable
 to the single route that introduced it.
 
-| Phase  | Work                                                                                                                                                                                                                                                                              | Done when                                                                                                    |
-| ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
-| **0**  | Clear the 7 pre-existing `tsc` errors ([§1.4](#14-pre-existing-breakage-to-clear-first-phase-0)); `npm install @anthropic-ai/sdk`; set the real `ANTHROPIC_API_KEY` in `.env.local` (already documented in `.env.example`); fix the `check-design-system.sh` radius rule (**G6**) | `tsc --noEmit` and `lint` both clean; `aiden doctor` green                                                   |
-| **1**  | Fragments (`org`, `ticket`, `ai-usage`), `user.prisma` back-refs, merge, migrate, seed                                                                                                                                                                                            | `db:seed` idempotent; 2 orgs, 6 users, 8 tickets present                                                     |
-| **2**  | `membership.ts`, `tickets.ts` guards, `abilities.ts` rules, `middleware.ts`                                                                                                                                                                                                       | Unit-level: every guard returns the right status                                                             |
-| **3a** | `GET /api/tickets` — list. Establishes the perimeter and `ticketVisibilityWhere` against seeded fixtures                                                                                                                                                                          | Smoke **1, 3**; an agent's query emits an `OR` on `ownerId`/`assigneeId` (verify the SQL, not just the rows) |
-| **3b** | `GET /api/tickets/[id]` — get. Carries the whole visibility matrix, so it is built before any write route                                                                                                                                                                         | Smoke **2, 4, 5, 8, 9, 10, 14** — all three roles, same-org and cross-tenant                                 |
-| **3c** | `POST /api/tickets` — create (no triage yet; defaults persist)                                                                                                                                                                                                                    | Smoke **12, 19, 20** — including the client-supplied `orgId` being ignored                                   |
-| **3d** | `PATCH /api/tickets/[id]` — update (no re-classify yet)                                                                                                                                                                                                                           | Smoke **6, 11** — cross-tenant 404 vs viewer 403, side by side                                               |
-| **3e** | `POST /api/tickets/[id]/close` — close + `closedAt`                                                                                                                                                                                                                               | Smoke **7**; closing an already-closed ticket is idempotent                                                  |
-| **4**  | Triage (`ai.complete({ responseSchema })`) wired into 3c + 3d                                                                                                                                                                                                                     | Triage fields populate; a provider failure does not fail the write                                           |
-| **5**  | `ai-usage.ts` sink + `withAICall`; register in `instrumentation.ts`                                                                                                                                                                                                               | `ai_usage` rows carry `orgId` + `feature`                                                                    |
-| **6**  | Draft-reply SSE route                                                                                                                                                                                                                                                             | Smoke **13, 24**; perimeter runs before the first token                                                      |
-| **7a** | `GET /api/admin/members` — the owner-only gate, proven once here                                                                                                                                                                                                                  | Smoke **15**                                                                                                 |
-| **7b** | `PATCH /api/admin/members/[id]` — role change + last-owner and self-demotion guards                                                                                                                                                                                               | Smoke **18, 23**                                                                                             |
-| **7c** | `GET /api/admin/audit` — org-scoped read ([§5.3](#53-org-scoped-audit-trail))                                                                                                                                                                                                     | Smoke **16, 21**; the denial events logged by 3a–3e are visible                                              |
-| **7d** | `GET /api/admin/usage` — spend aggregation. Last, so phases 4–6 have produced real rows to aggregate                                                                                                                                                                              | Smoke **17, 22**                                                                                             |
-| **8**  | **UI pre-flight** ([§6.1](#61-mandatory-pre-flight)), then all five pages + nav                                                                                                                                                                                                   | Light/dark, three breakpoints, no hardcoded colors                                                           |
-| **9**  | Full smoke suite green, `/security-review`, `aiden upgrade --dry-run`, `aiden doctor`                                                                                                                                                                                             | All green; PR opened via `/ship`                                                                             |
+| Phase  | Work                                                                                                                                                                                                                                                                                   | Done when                                                                                                    |
+| ------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| **1**  | Fragments (`org`, `ticket`, `ai-usage`), `user.prisma` back-refs, merge, migrate, seed                                                                                                                                                                                                 | `db:seed` idempotent; 2 orgs, 6 users, 8 tickets present                                                     |
+| **2**  | `membership.ts`, `tickets.ts` guards, `abilities.ts` rules, `middleware.ts`                                                                                                                                                                                                            | Unit-level: every guard returns the right status                                                             |
+| **3a** | `GET /api/tickets` — list. Establishes the perimeter and `ticketVisibilityWhere` against seeded fixtures                                                                                                                                                                               | Smoke **1, 3**; an agent's query emits an `OR` on `ownerId`/`assigneeId` (verify the SQL, not just the rows) |
+| **3b** | `GET /api/tickets/[id]` — get. Carries the whole visibility matrix, so it is built before any write route                                                                                                                                                                              | Smoke **2, 4, 5, 8, 9, 10, 14** — all three roles, same-org and cross-tenant                                 |
+| **3c** | `POST /api/tickets` — create (no triage yet; defaults persist)                                                                                                                                                                                                                         | Smoke **12, 19, 20** — including the client-supplied `orgId` being ignored                                   |
+| **3d** | `PATCH /api/tickets/[id]` — update (no re-classify yet)                                                                                                                                                                                                                                | Smoke **6, 11** — cross-tenant 404 vs viewer 403, side by side                                               |
+| **3e** | `POST /api/tickets/[id]/close` — close + `closedAt`                                                                                                                                                                                                                                    | Smoke **7**; closing an already-closed ticket is idempotent                                                  |
+| **4**  | **Prereq:** `npm install @anthropic-ai/sdk`; repair `src/lib/ai.ts` to read `ai.models` and add `defaultAI()` ([§1.4](#14-pre-existing-breakage--out-of-scope)); set the real `ANTHROPIC_API_KEY` in `.env.local`. Then triage (`ai.complete({ responseSchema })`) wired into 3c + 3d. | `tsc` error count drops 7 → 1; triage fields populate; a provider failure does not fail the write            |
+| **5**  | `ai-usage.ts` sink + `withAICall`; register in `instrumentation.ts`                                                                                                                                                                                                                    | `ai_usage` rows carry `orgId` + `feature`                                                                    |
+| **6**  | Draft-reply SSE route                                                                                                                                                                                                                                                                  | Smoke **13, 24**; perimeter runs before the first token                                                      |
+| **7a** | `GET /api/admin/members` — the owner-only gate, proven once here                                                                                                                                                                                                                       | Smoke **15**                                                                                                 |
+| **7b** | `PATCH /api/admin/members/[id]` — role change + last-owner and self-demotion guards                                                                                                                                                                                                    | Smoke **18, 23**                                                                                             |
+| **7c** | `GET /api/admin/audit` — org-scoped read ([§5.3](#53-org-scoped-audit-trail))                                                                                                                                                                                                          | Smoke **16, 21**; the denial events logged by 3a–3e are visible                                              |
+| **7d** | `GET /api/admin/usage` — spend aggregation. Last, so phases 4–6 have produced real rows to aggregate                                                                                                                                                                                   | Smoke **17, 22**                                                                                             |
+| **8**  | **Prereq:** narrow the `check-design-system.sh` radius rule (**G6**). Then the **UI pre-flight** ([§6.1](#61-mandatory-pre-flight)), then all five pages + nav                                                                                                                         | Hook passes a DS-correct card; light/dark, three breakpoints, no hardcoded colors                            |
+| **9**  | Full smoke suite green, `/security-review`, `aiden upgrade --dry-run`, `aiden doctor`                                                                                                                                                                                                  | All green; PR opened via `/ship`                                                                             |
 
 Every sub-step from **3a** through **7d** ends with `npm run lint && npx tsc --noEmit`, and
 re-runs **every** smoke row passed so far — not just its own. The suite is cumulative, so a
 later route that weakens an earlier guard fails the build at the step that caused it.
 
-Phase 8 opens with the §6.1 pre-flight read — the binding gate, since the
-`frontend-design` skill CLAUDE.md names does not exist (**G4**). It also depends on the
-**G6** hook fix landing in Phase 0, or every DS-correct card and button is blocked on write.
+Phase 8 opens by fixing the **G6** hook rule, then the §6.1 pre-flight read — the
+binding gate, since the `frontend-design` skill CLAUDE.md names does not exist (**G4**).
+Without the hook fix first, every DS-correct card and button is blocked on write.
 
 Natural commit boundaries: one commit per sub-step (`feat(tickets): add org-scoped list route`),
 which keeps each perimeter change reviewable on its own in the PR.
@@ -1200,14 +1221,14 @@ Building any of the following is scope creep:
 ## 11. Approval checklist
 
 **All items approved 2026-10-29.** The plan is approved; **the build has not started** —
-Phase 0 is not begun and no source file has been changed by this work.
+**Phase 0 was subsequently removed from scope (2026-10-30);** the build starts at Phase 1.
 
 - [x] **D4** confirmed — one active org per user in v1 ([§1.2](#12-scope-boundary--one-active-org-per-user-d4))
 - [x] **G4** resolved — no skill authored; `docs/design-system/*` + CLAUDE.md's Pre-Flight table are the authority, formalised in [§6.1](#61-mandatory-pre-flight)
-- [x] **G6** accepted — narrow the `check-design-system.sh` radius rule in Phase 0, before any UI work
+- [x] **G6** accepted — narrow the `check-design-system.sh` radius rule as the first step of **Phase 8**
 - [x] **G1 / G2 / G3** accepted as interim approaches, and to be filed upstream
-- [x] **Phase 0 scope agreed** — clearing the 7 pre-existing `tsc` errors is in scope for this work
-- [x] **`ANTHROPIC_API_KEY`** accepted as a prerequisite — **not yet supplied**: the variable exists in `.env.local` but is commented out and empty (it is already documented in `.env.example`). First needed at **Phase 4**, the first real provider call; Phases 0–3e do not require it.
+- [x] **Phase 0 dropped (2026-10-30)** — pre-existing breakage is no longer in scope; `tsc` stays at its 7-error baseline and the gate becomes _no new errors_ ([§8.1](#81-per-change-validation))
+- [x] **`ANTHROPIC_API_KEY`** accepted as a prerequisite — **not yet supplied**: the variable exists in `.env.local` but is commented out and empty. Now a **Phase 4** prerequisite; Phases 1–3e do not require it.
 
 ### 11.1 What approval covers
 
