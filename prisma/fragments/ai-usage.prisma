@@ -1,0 +1,34 @@
+// Deskline — per-call AI cost telemetry.
+//
+// Written by the setAIUsageSink() sink in src/lib/ai-usage.ts. `orgId`
+// and `feature` are not part of aiden-logging's AIUsageRecord (gap G3),
+// so they arrive via an AsyncLocalStorage call context — see
+// docs/plans/deskline.md §5.2.
+
+model AIUsage {
+  id        String  @id @default(cuid())
+  orgId     String? @map("org_id")
+  userId    String? @map("user_id")
+  requestId String? @map("request_id")
+  /// "ticket.draft" | "ticket.triage" — which feature spent the money.
+  feature   String?
+
+  provider         String
+  model            String
+  promptTokens     Int @map("prompt_tokens")
+  completionTokens Int @map("completion_tokens")
+  totalTokens      Int @map("total_tokens")
+
+  // Decimal, not Float — summing float money across thousands of calls drifts.
+  costUSD   Decimal  @map("cost_usd") @db.Decimal(12, 6)
+  latencyMs Int      @map("latency_ms")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  // Nullable so the sink never throws when it fires outside a request
+  // context; usage rows are removed with their org.
+  org Org? @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@index([orgId, createdAt])
+  @@index([userId])
+  @@map("ai_usage")
+}

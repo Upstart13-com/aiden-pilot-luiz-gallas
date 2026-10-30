@@ -7,9 +7,9 @@
 | TypeScript/Build | `typescript-build.md` | 3       | 2 of 3                 | 2026-02-20   | Stable |
 | Next.js          | `nextjs.md`           | 3       | 0 of 3                 | 2026-02-20   | Stable |
 | UI/Frontend      | `ui.md`               | 5       | 2 of 5                 | 2026-02-20   | Stable |
-| Prisma           | `prisma.md`           | 3       | 1 of 3                 | 2026-03-09   | Stable |
+| Prisma           | `prisma.md`           | 5       | 2 of 5                 | 2026-10-30   | Stable |
 
-**Total: 14 active entries across 4 categories · 5 structurally prevented**
+**Total: 16 active entries across 4 categories · 6 structurally prevented**
 
 These entries ship with the AIDEN starter template — they are universal gotchas observed across customer apps (Tailwind v4, Prisma 7, Next.js App Router, TypeScript). Add your own as they come up.
 

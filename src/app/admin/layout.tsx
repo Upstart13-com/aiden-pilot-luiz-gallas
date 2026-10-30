@@ -1,30 +1,46 @@
 import type { ReactNode } from "react";
+import Link from "next/link";
 import { redirect } from "next/navigation";
+import type { User } from "next-auth";
+import { ShieldAlert } from "lucide-react";
+import { Button } from "@upstart13-com/aiden-ui";
+import { AppShell } from "@/components/app-shell";
+import { EmptyState } from "@/components/empty-state";
 import { auth } from "@/lib/auth";
-import { abilities } from "@/lib/abilities";
-
-interface AdminLayoutProps {
-  children: ReactNode;
-}
+import { getMe, viewerCan } from "@/lib/page-context";
 
 /**
- * Segment guard for everything under `/admin`. This is the safe default:
- * any page added under `admin/` is protected without remembering to copy a
- * per-page redirect block. Pages keep their own ability check as
- * defense-in-depth, but the layout is the backstop.
- *
- * Unauthenticated users go to /login; authenticated users without an admin
- * ability go to /dashboard.
+ * Guard for everything under `/admin`: owners only. Other members see an
+ * explanation instead of a redirect, so they know why the page is closed.
  */
-export default async function AdminLayout({ children }: AdminLayoutProps) {
+export default async function AdminLayout({
+  children,
+}: {
+  children: ReactNode;
+}) {
   const session = await auth();
-  if (!session?.user?.id) redirect("/login?callbackUrl=/admin");
+  if (!session?.user?.id) redirect("/login?callbackUrl=/admin/members");
 
-  const canManageUsers = abilities.can(session as never, "users.manage");
-  const canReadAudit = abilities.can(session as never, "audit.read");
-  if (!canManageUsers && !canReadAudit) {
-    redirect("/dashboard");
-  }
+  const user = session.user as User & { id: string };
+  const me = await getMe();
+  const isOwner = viewerCan(me, "org.members.manage");
 
-  return <>{children}</>;
+  return (
+    <AppShell user={user} showAdmin={isOwner}>
+      {isOwner ? (
+        children
+      ) : (
+        <EmptyState
+          icon={ShieldAlert}
+          title="Owners only"
+          description="Members, audit and cost pages are available to your organization's owners. Ask an owner if you need access."
+          action={
+            <Button asChild variant="outline" size="sm">
+              <Link href="/dashboard">Back to tickets</Link>
+            </Button>
+          }
+        />
+      )}
+    </AppShell>
+  );
 }

@@ -1,38 +1,21 @@
 import { NextResponse } from "next/server";
-import { withAuth, assertCan } from "@/lib/security";
-import { auditReader } from "@/lib/audit";
+import { withAuth, assertCan, RequestValidationError } from "@/lib/security";
 import { abilities } from "@/lib/abilities";
-
-const MAX_LIMIT = 200;
+import { listAuditEntries, listAuditEvents } from "@/lib/admin";
+import { requireMembership } from "@/lib/membership";
+import { AuditQuery } from "@/lib/validation/admin";
 
 export const GET = withAuth(async (req, { session }) => {
-  assertCan(abilities, session, "audit.read");
-
   const url = new URL(req.url);
-  const limit = clamp(
-    parseInt(url.searchParams.get("limit") ?? "50", 10),
-    1,
-    MAX_LIMIT
-  );
-  const cursor = url.searchParams.get("cursor") ?? undefined;
-  const event = url.searchParams.get("event") ?? undefined;
-  const userId = url.searchParams.get("userId") ?? undefined;
-  const from = url.searchParams.get("from");
-  const to = url.searchParams.get("to");
+  const parsed = AuditQuery.safeParse(Object.fromEntries(url.searchParams));
+  if (!parsed.success) throw new RequestValidationError(parsed.error);
 
-  const page = await auditReader.list({
-    limit,
-    cursor,
-    event,
-    userId,
-    from: from ? new Date(from) : undefined,
-    to: to ? new Date(to) : undefined,
-  });
+  const ctx = await requireMembership(session.user.id);
+  assertCan(abilities, session, "org.audit.read", ctx);
 
-  return NextResponse.json(page);
+  const [page, events] = await Promise.all([
+    listAuditEntries(ctx.orgId, parsed.data),
+    listAuditEvents(ctx.orgId),
+  ]);
+  return NextResponse.json({ ...page, events });
 });
-
-function clamp(n: number, lo: number, hi: number): number {
-  if (Number.isNaN(n)) return lo;
-  return Math.min(Math.max(n, lo), hi);
-}

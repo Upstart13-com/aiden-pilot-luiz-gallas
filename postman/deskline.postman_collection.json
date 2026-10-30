@@ -1,0 +1,93 @@
+{
+  "info": {
+    "name": "Deskline API",
+    "description": "Routes implemented so far (phases 3a and 3b). Run 'Auth / Get CSRF token' then 'Auth / Sign in' first; Postman keeps the session cookie for later requests. Set `password` to SEED_PASSWORD from .env.local.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:3000" },
+    { "key": "email", "value": "owner@acme.test" },
+    { "key": "password", "value": "" },
+    { "key": "csrfToken", "value": "" },
+    { "key": "ticketId", "value": "tkt_acme_agent_owned" }
+  ],
+  "item": [
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Get CSRF token",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set(\"csrfToken\", pm.response.json().csrfToken);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/auth/csrf"
+          }
+        },
+        {
+          "name": "Sign in",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/x-www-form-urlencoded" }
+            ],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                { "key": "csrfToken", "value": "{{csrfToken}}" },
+                { "key": "email", "value": "{{email}}" },
+                { "key": "password", "value": "{{password}}" }
+              ]
+            },
+            "url": "{{baseUrl}}/api/auth/callback/credentials"
+          }
+        },
+        {
+          "name": "Current session",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/auth/session"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Tickets",
+      "item": [
+        {
+          "name": "List tickets",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/tickets?limit=25",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "tickets"],
+              "query": [
+                { "key": "limit", "value": "25" },
+                { "key": "status", "value": "open", "disabled": true },
+                { "key": "priority", "value": "medium", "disabled": true },
+                { "key": "cursor", "value": "", "disabled": true }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get ticket",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/tickets/{{ticketId}}"
+          }
+        }
+      ]
+    }
+  ]
+}

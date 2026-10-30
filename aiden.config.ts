@@ -17,8 +17,9 @@ export const aidenConfig = {
   app: {
     name: "Deskline",
     shortName: "deskline",
-    tagline: "Your product tagline goes here.",
-    description: "A short description of your app for metadata and previews.",
+    tagline: "The AI-assisted support desk for your whole team.",
+    description:
+      "Deskline is a multi-tenant support desk where agents triage and answer customer tickets with AI-drafted replies.",
     supportEmail: "support@deskline.com",
     url: "",
     companyLegalName: "Deskline, Inc.",
@@ -35,10 +36,10 @@ export const aidenConfig = {
   },
 
   ai: {
-    /**
-     * Toggle providers with `enabled` and optionally pin a default `model`.
-     * When `model` is omitted, src/lib/ai.ts falls back to a built-in default.
-     */
+    /** The active provider. Change this one line to swap vendors. */
+    defaultProvider: "anthropic",
+
+    /** Toggle providers. Install the matching SDK for each enabled one. */
     providers: {
       openai: false,
       anthropic: false,
@@ -47,10 +48,26 @@ export const aidenConfig = {
       groq: false,
       cohere: false,
     },
+
+    /** Default model per provider, read by src/lib/ai.ts. */
+    models: {
+      openai: "gpt-4o-mini",
+      anthropic: "claude-haiku-4-5",
+      google: "gemini-2.5-flash",
+      mistral: "mistral-small-latest",
+      groq: "llama-3.3-70b-versatile",
+      cohere: "command-r",
+    },
   },
 
   audit: {
-    enabled: true, // Prisma sink registered in src/lib/audit.ts
+    enabled: true, // sinks registered in src/lib/audit.ts
+    /**
+     * Where audit events go: "prisma" (the audit_logs table, read by
+     * /admin/audit) or "file" (JSON Lines at AUDIT_LOG_FILE, for a
+     * customer-owned store and retention policy).
+     */
+    sink: "prisma",
   },
 
   rbac: {

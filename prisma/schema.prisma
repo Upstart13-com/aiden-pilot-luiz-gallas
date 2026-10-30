@@ -13,6 +13,154 @@ datasource db {
   provider = "postgresql"
 }
 
+// ─── prisma/fragments/ai-usage.prisma ───
+// Deskline — per-call AI cost telemetry.
+//
+// Written by the setAIUsageSink() sink in src/lib/ai-usage.ts. `orgId`
+// and `feature` are not part of aiden-logging's AIUsageRecord (gap G3),
+// so they arrive via an AsyncLocalStorage call context — see
+// docs/plans/deskline.md §5.2.
+
+model AIUsage {
+  id        String  @id @default(cuid())
+  orgId     String? @map("org_id")
+  userId    String? @map("user_id")
+  requestId String? @map("request_id")
+  /// "ticket.draft" | "ticket.triage" — which feature spent the money.
+  feature   String?
+
+  provider         String
+  model            String
+  promptTokens     Int @map("prompt_tokens")
+  completionTokens Int @map("completion_tokens")
+  totalTokens      Int @map("total_tokens")
+
+  // Decimal, not Float — summing float money across thousands of calls drifts.
+  costUSD   Decimal  @map("cost_usd") @db.Decimal(12, 6)
+  latencyMs Int      @map("latency_ms")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  // Nullable so the sink never throws when it fires outside a request
+  // context; usage rows are removed with their org.
+  org Org? @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@index([orgId, createdAt])
+  @@index([userId])
+  @@map("ai_usage")
+}
+
+// ─── prisma/fragments/org.prisma ───
+// Deskline — the tenant and its membership edge.
+//
+// `Membership` is the single source of truth for a user's role INSIDE an
+// org. It is deliberately not the AIDEN global `Role[]` m2m: that one is
+// app-wide, so a role granted there would apply across every tenant.
+// See docs/plans/deskline.md §1.1 (D1).
+
+/// The three roles a member can hold inside an org. A Postgres enum, so
+/// the database itself rejects a fourth — see docs/plans/deskline.md §10.
+enum MembershipRole {
+  owner
+  agent
+  viewer
+}
+
+model Org {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  memberships Membership[]
+  tickets     Ticket[]
+  aiUsage     AIUsage[]
+
+  @@map("orgs")
+}
+
+model Membership {
+  id        String         @id @default(cuid())
+  userId    String         @map("user_id")
+  orgId     String         @map("org_id")
+  role      MembershipRole @default(viewer)
+  createdAt DateTime       @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  org  Org  @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  // The natural many-to-many shape. v1 resolves a single membership per
+  // user (D4), but nothing here assumes that — lifting the scope boundary
+  // to multi-org needs no migration.
+  @@unique([userId, orgId])
+  @@index([orgId])
+  @@map("memberships")
+}
+
+// ─── prisma/fragments/ticket.prisma ───
+// Deskline — the support ticket.
+//
+// Every row carries `orgId` (the tenant) and `ownerId` (the member who
+// filed it). Both are always in the WHERE clause; neither is ever accepted
+// from a client. See docs/plans/deskline.md §3.2 and §3.8.
+
+enum TicketStatus {
+  open
+  pending
+  resolved
+  closed
+}
+
+enum TicketPriority {
+  low
+  medium
+  high
+  urgent
+}
+
+enum TicketSentiment {
+  positive
+  neutral
+  negative
+}
+
+model Ticket {
+  id         String  @id @default(cuid())
+  orgId      String  @map("org_id")
+  ownerId    String  @map("owner_id")
+  assigneeId String? @map("assignee_id")
+
+  subject String
+  body    String       @db.Text
+  status  TicketStatus @default(open)
+
+  // AI triage output — written by ai.complete({ responseSchema }) and
+  // re-validated with Zod before it lands here. `triagedAt` stays null
+  // when triage failed, so a flaky provider is visible rather than silent.
+  priority  TicketPriority   @default(medium)
+  category  String?
+  sentiment TicketSentiment?
+  triagedAt DateTime?        @map("triaged_at")
+
+  closedAt  DateTime? @map("closed_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+
+  org      Org   @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  owner    User  @relation("TicketOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  assignee User? @relation("TicketAssignee", fields: [assigneeId], references: [id], onDelete: Cascade)
+
+  // Every index leads with orgId — tenant isolation is an index-level
+  // property here, not only a convention in the query layer.
+  @@index([orgId])
+  @@index([orgId, status])
+  @@index([orgId, ownerId])
+  @@index([orgId, assigneeId])
+  @@index([ownerId])
+  @@index([assigneeId])
+  @@map("tickets")
+}
+
 // ─── prisma/fragments/user.prisma ───
 // User model — owned by the consumer because Prisma requires it to
 // declare every back-relation it participates in. Add your business
@@ -31,6 +179,12 @@ model User {
   accounts Account[]
   sessions Session[]
   roles    Role[]    @relation("UserRoles")
+
+  // Deskline back-refs. Prisma requires the consumer-owned User to declare
+  // every relation it participates in.
+  memberships     Membership[]
+  ticketsOwned    Ticket[]     @relation("TicketOwner")
+  ticketsAssigned Ticket[]     @relation("TicketAssignee")
 
   @@map("users")
 }

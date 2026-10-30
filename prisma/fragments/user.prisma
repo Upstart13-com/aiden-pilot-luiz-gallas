@@ -16,5 +16,11 @@ model User {
   sessions Session[]
   roles    Role[]    @relation("UserRoles")
 
+  // Deskline back-refs. Prisma requires the consumer-owned User to declare
+  // every relation it participates in.
+  memberships     Membership[]
+  ticketsOwned    Ticket[]     @relation("TicketOwner")
+  ticketsAssigned Ticket[]     @relation("TicketAssignee")
+
   @@map("users")
 }

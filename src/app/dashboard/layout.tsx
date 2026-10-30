@@ -1,59 +1,35 @@
 import type { ReactNode } from "react";
 import { redirect } from "next/navigation";
 import type { User } from "next-auth";
-import {
-  DashboardHeader,
-  DashboardNav,
-  Toaster,
-  type DashboardNavItem,
-} from "@upstart13-com/aiden-ui";
+import { Building2 } from "lucide-react";
+import { AppShell } from "@/components/app-shell";
+import { EmptyState } from "@/components/empty-state";
 import { auth } from "@/lib/auth";
-import { abilities } from "@/lib/abilities";
-import { brand } from "@/config/brand";
-import { aidenConfig } from "@/../aiden.config";
-import {
-  primaryNavItems,
-  settingsNavItem,
-  adminUsersNavItem,
-} from "@/config/nav";
-
-interface DashboardLayoutProps {
-  children: ReactNode;
-}
+import { getMe, viewerCan } from "@/lib/page-context";
 
 export default async function DashboardLayout({
   children,
-}: DashboardLayoutProps) {
+}: {
+  children: ReactNode;
+}) {
   const session = await auth();
   if (!session?.user?.id) redirect("/login?callbackUrl=/dashboard");
 
   const user = session.user as User & { id: string };
-
-  const canManageUsers = abilities.can(session as never, "users.manage");
-  const secondaryNavItems: DashboardNavItem[] = canManageUsers
-    ? [adminUsersNavItem, settingsNavItem]
-    : [settingsNavItem];
+  const me = await getMe();
+  const showAdmin = viewerCan(me, "org.members.manage");
 
   return (
-    <div className="bg-background flex h-screen overflow-hidden">
-      <DashboardNav
-        user={user}
-        primaryNavItems={primaryNavItems}
-        secondaryNavItems={secondaryNavItems}
-        brand={brand}
-        settingsHref={settingsNavItem.href}
-        showBilling={aidenConfig.billing.enabled}
-      />
-      <div className="flex min-w-0 flex-1 flex-col">
-        <DashboardHeader
-          user={user}
-          primaryNavItems={primaryNavItems}
-          secondaryNavItems={secondaryNavItems}
-          brand={brand}
+    <AppShell user={user} showAdmin={showAdmin}>
+      {me.membership ? (
+        children
+      ) : (
+        <EmptyState
+          icon={Building2}
+          title="You're not part of an organization yet"
+          description="Ask an owner of your organization to add you. Once you're a member, your tickets will show up here."
         />
-        <main className="flex-1 overflow-y-auto">{children}</main>
-      </div>
-      <Toaster />
-    </div>
+      )}
+    </AppShell>
   );
 }

@@ -5,6 +5,7 @@ import {
 } from "@upstart13-com/aiden-auth";
 import { withAuth, parseRequest, auditLog } from "@/lib/security";
 import { prisma } from "@/lib/prisma";
+import { findMembership } from "@/lib/membership";
 
 export const GET = withAuth(async (_req, { session }) => {
   const user = await prisma.user.findUnique({
@@ -27,6 +28,14 @@ export const GET = withAuth(async (_req, { session }) => {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
+  const membership = await findMembership(session.user.id);
+  const org = membership
+    ? await prisma.org.findUnique({
+        where: { id: membership.orgId },
+        select: { name: true },
+      })
+    : null;
+
   // Derive `hasPassword` from a separate, minimal query so the bcrypt hash
   // is never materialized into the rich `user` object above (avoids
   // widening the blast radius of any future log/serialize of `user`).
@@ -45,6 +54,13 @@ export const GET = withAuth(async (_req, { session }) => {
     hasPassword: credentials?.passwordHash != null,
     accounts: user.accounts,
     roles: user.roles,
+    membership: membership
+      ? {
+          orgId: membership.orgId,
+          orgName: org?.name ?? "",
+          role: membership.role,
+        }
+      : null,
   });
 });
 
@@ -87,7 +103,7 @@ function requireJson(req: Request): NextResponse | null {
   if (!ct.toLowerCase().includes("application/json")) {
     return NextResponse.json(
       { error: "Content-Type must be application/json" },
-      { status: 415 }
+      { status: 415 },
     );
   }
   return null;

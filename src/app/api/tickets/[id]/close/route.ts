@@ -1,0 +1,42 @@
+import { NextResponse } from "next/server";
+import {
+  withAuth,
+  assertCan,
+  auditLog,
+  RequestValidationError,
+} from "@/lib/security";
+import { abilities } from "@/lib/abilities";
+import { requireMembership } from "@/lib/membership";
+import { findVisibleTicket, ticketSelect } from "@/lib/tickets";
+import { prisma } from "@/lib/prisma";
+import { RouteParams } from "@/lib/validation/ticket";
+
+type Params = Promise<{ id: string }>;
+
+export const POST = withAuth<Params>(async (_req, { session, params }) => {
+  const parsed = RouteParams.safeParse(await params);
+  if (!parsed.success) throw new RequestValidationError(parsed.error);
+  const { id } = parsed.data;
+
+  const ctx = await requireMembership(session.user.id);
+  const ticket = await findVisibleTicket(id, ctx);
+  assertCan(abilities, session, "ticket.close", ctx);
+
+  // Closing an already-closed ticket is a no-op: keep the original closedAt.
+  if (ticket.status === "closed") {
+    return NextResponse.json({ ticket });
+  }
+
+  const closed = await prisma.ticket.update({
+    where: { id: ticket.id },
+    data: { status: "closed", closedAt: new Date() },
+    select: ticketSelect,
+  });
+  auditLog({
+    event: "ticket.close",
+    resourceId: closed.id,
+    metadata: { orgId: ctx.orgId },
+  });
+
+  return NextResponse.json({ ticket: closed });
+});

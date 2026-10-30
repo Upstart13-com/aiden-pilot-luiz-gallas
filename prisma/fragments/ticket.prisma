@@ -1,0 +1,62 @@
+// Deskline — the support ticket.
+//
+// Every row carries `orgId` (the tenant) and `ownerId` (the member who
+// filed it). Both are always in the WHERE clause; neither is ever accepted
+// from a client. See docs/plans/deskline.md §3.2 and §3.8.
+
+enum TicketStatus {
+  open
+  pending
+  resolved
+  closed
+}
+
+enum TicketPriority {
+  low
+  medium
+  high
+  urgent
+}
+
+enum TicketSentiment {
+  positive
+  neutral
+  negative
+}
+
+model Ticket {
+  id         String  @id @default(cuid())
+  orgId      String  @map("org_id")
+  ownerId    String  @map("owner_id")
+  assigneeId String? @map("assignee_id")
+
+  subject String
+  body    String       @db.Text
+  status  TicketStatus @default(open)
+
+  // AI triage output — written by ai.complete({ responseSchema }) and
+  // re-validated with Zod before it lands here. `triagedAt` stays null
+  // when triage failed, so a flaky provider is visible rather than silent.
+  priority  TicketPriority   @default(medium)
+  category  String?
+  sentiment TicketSentiment?
+  triagedAt DateTime?        @map("triaged_at")
+
+  closedAt  DateTime? @map("closed_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+
+  org      Org   @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  owner    User  @relation("TicketOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  assignee User? @relation("TicketAssignee", fields: [assigneeId], references: [id], onDelete: Cascade)
+
+  // Every index leads with orgId — tenant isolation is an index-level
+  // property here, not only a convention in the query layer.
+  @@index([orgId])
+  @@index([orgId, status])
+  @@index([orgId, ownerId])
+  @@index([orgId, assigneeId])
+  @@index([ownerId])
+  @@index([assigneeId])
+  @@map("tickets")
+}

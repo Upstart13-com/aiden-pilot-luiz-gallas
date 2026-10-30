@@ -36,9 +36,20 @@ interface ProfileSectionProps {
     image: string | null;
     createdAt: string;
     accounts: Array<{ provider: string; providerAccountId: string }>;
-    roles: Array<{ name: string; description: string | null }>;
+    membership: {
+      orgName: string;
+      role: "owner" | "agent" | "viewer";
+    } | null;
   };
 }
+
+const ROLE_DESCRIPTIONS = {
+  owner:
+    "Manages members and roles, and reads every ticket, the audit trail and AI cost.",
+  agent:
+    "Works the tickets you opened or are assigned, and drafts replies with AI.",
+  viewer: "Reads every ticket in the organization, without changing them.",
+} as const;
 
 export function ProfileSection({ user }: ProfileSectionProps) {
   const [displayName, setDisplayName] = useState(user.name ?? "");
@@ -198,34 +209,32 @@ export function ProfileSection({ user }: ProfileSectionProps) {
 
       <Card>
         <CardHeader>
-          <CardTitle>Your roles</CardTitle>
+          <CardTitle>Your organization</CardTitle>
           <CardDescription>
-            Roles determine what you can access. Contact an admin to change
-            them.
+            Your role decides what you can do. An owner of your organization can
+            change it.
           </CardDescription>
         </CardHeader>
         <CardContent>
-          {user.roles.length === 0 ? (
-            <p className="text-muted-foreground text-sm">No roles assigned.</p>
+          {user.membership ? (
+            <div className="flex items-start justify-between gap-4">
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-medium">
+                  {user.membership.orgName}
+                </p>
+                <p className="text-muted-foreground mt-0.5 text-xs">
+                  {ROLE_DESCRIPTIONS[user.membership.role]}
+                </p>
+              </div>
+              <Badge variant="outline" className="capitalize">
+                {user.membership.role}
+              </Badge>
+            </div>
           ) : (
-            <ul className="space-y-3">
-              {user.roles.map((r) => (
-                <li
-                  key={r.name}
-                  className="flex items-start justify-between gap-4"
-                >
-                  <div className="min-w-0 flex-1">
-                    <p className="text-sm font-medium">{r.name}</p>
-                    {r.description && (
-                      <p className="text-muted-foreground mt-0.5 text-xs">
-                        {r.description}
-                      </p>
-                    )}
-                  </div>
-                  <Badge variant="outline">{r.name}</Badge>
-                </li>
-              ))}
-            </ul>
+            <p className="text-muted-foreground text-sm">
+              You&apos;re not part of an organization yet. Ask an owner to add
+              you.
+            </p>
           )}
         </CardContent>
       </Card>
