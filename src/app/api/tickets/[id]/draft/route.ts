@@ -12,7 +12,7 @@ import {
 } from "@/lib/security";
 import { abilities } from "@/lib/abilities";
 import { defaultAI } from "@/lib/ai";
-import { withAICall } from "@/lib/ai-usage";
+import { withAIStreamCall } from "@/lib/ai-usage";
 import { requireMembership } from "@/lib/membership";
 import { assertTicketVisible } from "@/lib/tickets";
 import { prisma } from "@/lib/prisma";
@@ -41,7 +41,7 @@ export const POST = withAuth<Params>(
       assertTicketVisible(ticket, ctx);
 
       const client = await defaultAI();
-      const stream = await withAICall(
+      const stream = await withAIStreamCall(
         { orgId: ctx.orgId, feature: "ticket.draft" },
         () =>
           client.stream({

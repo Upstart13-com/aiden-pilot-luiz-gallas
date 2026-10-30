@@ -30,3 +30,21 @@ setAIUsageSink(async (record) => {
     log.error({ err }, "failed to persist AI usage");
   }
 });
+
+/**
+ * `withAICall` for streams. Providers record usage in `finalResponse()`,
+ * which the SSE response calls after the route has returned, outside the
+ * call context, so it is bound back to that context here.
+ */
+export function withAIStreamCall<
+  S extends { finalResponse(): Promise<unknown> },
+>(meta: AICallMeta, open: () => Promise<S>): Promise<S> {
+  return aiCallContext.run(meta, async () => {
+    const stream = await open();
+    const runInCallContext = AsyncLocalStorage.snapshot();
+    const finalResponse = stream.finalResponse.bind(stream);
+    return Object.assign(stream, {
+      finalResponse: () => runInCallContext(finalResponse),
+    });
+  });
+}
