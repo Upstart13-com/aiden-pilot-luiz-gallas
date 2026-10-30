@@ -196,9 +196,6 @@ describe("7d GET /api/admin/usage", () => {
     const ids = json.recent.map((r: { id: string }) => r.id);
     expect(ids).toEqual(expect.arrayContaining([USAGE_IDS[0], USAGE_IDS[1]]));
     expect(ids).not.toContain(USAGE_IDS[2]);
-
-    const acme = await orgId("acme");
-    for (const r of json.recent) expect(r.orgId).toBe(acme);
   });
 
   it("breaks spend down by feature, matching the org's rows", async () => {

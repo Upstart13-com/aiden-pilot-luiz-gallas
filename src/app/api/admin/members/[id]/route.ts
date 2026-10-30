@@ -26,6 +26,7 @@ export const PATCH = withAuth<Params>(async (req, { session, params }) => {
 
   const member = await prisma.membership.findFirst({
     where: { id, orgId: ctx.orgId },
+    select: { id: true, userId: true, role: true },
   });
   if (!member) throw new OwnershipError();
 
@@ -51,6 +52,7 @@ export const PATCH = withAuth<Params>(async (req, { session, params }) => {
   const updated = await prisma.membership.update({
     where: { id: member.id },
     data: { role },
+    select: { id: true, role: true },
   });
   auditLog({
     event: "member.role_changed",

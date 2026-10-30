@@ -8,7 +8,11 @@ import {
 } from "@/lib/security";
 import { abilities } from "@/lib/abilities";
 import { requireMembership } from "@/lib/membership";
-import { assertAssigneeInOrg, findVisibleTicket } from "@/lib/tickets";
+import {
+  assertAssigneeInOrg,
+  findVisibleTicket,
+  ticketSelect,
+} from "@/lib/tickets";
 import { prisma } from "@/lib/prisma";
 import { triageTicket } from "@/lib/triage";
 import { RouteParams, UpdateTicketBody } from "@/lib/validation/ticket";
@@ -54,6 +58,7 @@ export const PATCH = withAuth<Params>(async (req, { session, params }) => {
   const saved = await prisma.ticket.update({
     where: { id: ticket.id },
     data: body,
+    select: ticketSelect,
   });
   const updatedTicket =
     contentChanged && saved.status !== "closed"

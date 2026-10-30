@@ -48,6 +48,15 @@ export async function listAuditEntries(
 ) {
   const rows = await prisma.auditLog.findMany({
     where: { actorId: { in: await memberIds(orgId) }, event: opts.event },
+    // What the audit table shows; IP, user agent and request id stay server-side.
+    select: {
+      id: true,
+      event: true,
+      actorId: true,
+      resourceId: true,
+      metadata: true,
+      timestamp: true,
+    },
     orderBy: [{ timestamp: "desc" }, { id: "desc" }],
     take: opts.limit + 1,
     ...(opts.cursor ? { cursor: { id: opts.cursor }, skip: 1 } : {}),
@@ -91,6 +100,14 @@ export async function getUsageSummary(orgId: string) {
       prisma.aIUsage.groupBy({ by: ["userId"], where: org, ...sums }),
       prisma.aIUsage.findMany({
         where: org,
+        select: {
+          id: true,
+          feature: true,
+          model: true,
+          totalTokens: true,
+          costUSD: true,
+          createdAt: true,
+        },
         orderBy: { createdAt: "desc" },
         take: 20,
       }),

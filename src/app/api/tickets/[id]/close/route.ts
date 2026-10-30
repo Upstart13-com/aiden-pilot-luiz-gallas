@@ -7,7 +7,7 @@ import {
 } from "@/lib/security";
 import { abilities } from "@/lib/abilities";
 import { requireMembership } from "@/lib/membership";
-import { findVisibleTicket } from "@/lib/tickets";
+import { findVisibleTicket, ticketSelect } from "@/lib/tickets";
 import { prisma } from "@/lib/prisma";
 import { RouteParams } from "@/lib/validation/ticket";
 
@@ -31,6 +31,7 @@ export const POST = withAuth<Params>(async (_req, { session, params }) => {
   const closed = await prisma.ticket.update({
     where: { id: ticket.id },
     data: { status: "closed", closedAt: new Date() },
+    select: ticketSelect,
   });
   auditLog({
     event: "ticket.closed",

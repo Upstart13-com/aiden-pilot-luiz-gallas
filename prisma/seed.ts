@@ -22,11 +22,22 @@ const adapter = new PrismaPg({
 const prisma = new PrismaClient({ adapter });
 
 /**
- * Shared password for every seeded dev account. Override with
- * SEED_PASSWORD in .env.local. Never logged — the value is hashed
- * before it reaches the database and is not printed on success.
+ * Shared password for every seeded dev account, from SEED_PASSWORD in
+ * .env.local. There is deliberately no default: a password committed to the
+ * repo would be public for any database this seed ever ran against. Never
+ * logged — it is hashed before it reaches the database.
  */
-const SEED_PASSWORD = process.env.SEED_PASSWORD ?? "deskline-dev-password";
+function requireSeedPassword(): string {
+  const password = process.env.SEED_PASSWORD;
+  if (!password) {
+    throw new Error(
+      "SEED_PASSWORD is not set. Add it to .env.local before seeding.",
+    );
+  }
+  return password;
+}
+
+const SEED_PASSWORD = requireSeedPassword();
 
 type SeedUser = {
   key: string;

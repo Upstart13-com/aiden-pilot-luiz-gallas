@@ -73,8 +73,6 @@ export type AuditResponse = {
     resourceId: string | null;
     metadata: Record<string, unknown> | null;
     timestamp: string;
-    ipAddress: string | null;
-    userAgent: string | null;
   }[];
   nextCursor: string | null;
   events: string[];

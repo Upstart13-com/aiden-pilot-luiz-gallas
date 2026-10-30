@@ -1,11 +1,11 @@
 import "server-only";
 import { z } from "zod";
-import type { Ticket } from "@/generated/prisma/client";
 import { defaultAI } from "@/lib/ai";
 import { withAICall } from "@/lib/ai-usage";
 import { log } from "@/lib/logger";
 import type { MembershipContext } from "@/lib/membership";
 import { prisma } from "@/lib/prisma";
+import { ticketSelect, type TicketView } from "@/lib/tickets";
 import {
   TRIAGE_MAX_TOKENS,
   TRIAGE_SYSTEM_PROMPT,
@@ -35,9 +35,9 @@ const TriageResult = z.object({
  * still null, so a flaky provider never blocks filing a ticket.
  */
 export async function triageTicket(
-  ticket: Ticket,
+  ticket: TicketView,
   ctx: MembershipContext,
-): Promise<Ticket> {
+): Promise<TicketView> {
   try {
     const client = await defaultAI();
     const res = await withAICall(
@@ -63,6 +63,7 @@ export async function triageTicket(
     return await prisma.ticket.update({
       where: { id: ticket.id },
       data: { ...parsed.data, triagedAt: new Date() },
+      select: ticketSelect,
     });
   } catch (err) {
     log.error({ err, ticketId: ticket.id }, "ticket triage failed");

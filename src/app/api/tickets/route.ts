@@ -8,7 +8,11 @@ import {
 } from "@/lib/security";
 import { abilities } from "@/lib/abilities";
 import { requireMembership } from "@/lib/membership";
-import { assertAssigneeInOrg, ticketVisibilityWhere } from "@/lib/tickets";
+import {
+  assertAssigneeInOrg,
+  ticketSelect,
+  ticketVisibilityWhere,
+} from "@/lib/tickets";
 import { prisma } from "@/lib/prisma";
 import { triageTicket } from "@/lib/triage";
 import { CreateTicketBody, ListTicketsQuery } from "@/lib/validation/ticket";
@@ -28,6 +32,7 @@ export const GET = withAuth(async (req, { session }) => {
     where: { ...ticketVisibilityWhere(ctx), status, priority },
     orderBy: [{ createdAt: "desc" }, { id: "desc" }],
     take: limit + 1,
+    select: ticketSelect,
     ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
   });
 
@@ -55,6 +60,7 @@ export const POST = withAuth(async (req, { session }) => {
       subject: body.subject,
       body: body.body,
     },
+    select: ticketSelect,
   });
   const ticket = await triageTicket(created, ctx);
   auditLog({

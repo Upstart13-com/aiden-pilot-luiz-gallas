@@ -1,5 +1,5 @@
 import "server-only";
-import type { Prisma, Ticket } from "@/generated/prisma/client";
+import type { Prisma } from "@/generated/prisma/client";
 import { OwnershipError } from "@upstart13-com/aiden-security";
 import { assertOwnership } from "@/lib/security";
 import { prisma } from "@/lib/prisma";
@@ -14,6 +14,28 @@ import type { MembershipContext } from "@/lib/membership";
  *            `assertCan`, which is a 403, not by visibility)
  *   agent  — only tickets they own or are assigned to
  */
+
+/** The ticket fields the API exposes. Ticket queries select these, never the whole row. */
+export const ticketSelect = {
+  id: true,
+  orgId: true,
+  ownerId: true,
+  assigneeId: true,
+  subject: true,
+  body: true,
+  status: true,
+  priority: true,
+  category: true,
+  sentiment: true,
+  triagedAt: true,
+  closedAt: true,
+  createdAt: true,
+  updatedAt: true,
+} satisfies Prisma.TicketSelect;
+
+export type TicketView = Prisma.TicketGetPayload<{
+  select: typeof ticketSelect;
+}>;
 
 /**
  * The WHERE fragment that scopes a ticket query to what this caller may see.
@@ -34,9 +56,9 @@ export function ticketVisibilityWhere(
 
 /** Narrows a scoped lookup to a row; no row is the SDK's 404 + audit event. */
 function assertTicketFound(
-  ticket: Ticket | null,
+  ticket: TicketView | null,
   userId: string,
-): asserts ticket is Ticket {
+): asserts ticket is TicketView {
   if (!ticket) assertOwnership(null, userId);
 }
 
@@ -50,9 +72,10 @@ function assertTicketFound(
 export async function findVisibleTicket(
   id: string,
   ctx: MembershipContext,
-): Promise<Ticket> {
+): Promise<TicketView> {
   const ticket = await prisma.ticket.findFirst({
     where: { id, ...ticketVisibilityWhere(ctx) },
+    select: ticketSelect,
   });
   assertTicketFound(ticket, ctx.userId);
   return ticket;
