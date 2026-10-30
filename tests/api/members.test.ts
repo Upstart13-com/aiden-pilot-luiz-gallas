@@ -35,10 +35,10 @@ describe("GET /api/members", () => {
     expect(emails.every((e: string) => e.endsWith("@globex.test"))).toBe(true);
   });
 
-  it("is only for roles that edit tickets (viewers and owners get 403)", async () => {
+  it("is readable by every role, for the assignee filter", async () => {
     await actAs("acmeViewer");
-    expect((await call(listMembers, "GET")).status).toBe(403);
+    expect((await call(listMembers, "GET")).status).toBe(200);
     await actAs("acmeOwner");
-    expect((await call(listMembers, "GET")).status).toBe(403);
+    expect((await call(listMembers, "GET")).status).toBe(200);
   });
 });

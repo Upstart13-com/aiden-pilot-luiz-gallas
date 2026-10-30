@@ -13,30 +13,48 @@ import {
 
 const ALL = "all";
 
-const FILTERS = {
-  status: {
-    label: "Status",
-    options: {
-      open: "Open",
-      pending: "Pending",
-      resolved: "Resolved",
-      closed: "Closed",
-    },
-  },
-  priority: {
-    label: "Priority",
-    options: { urgent: "Urgent", high: "High", medium: "Medium", low: "Low" },
-  },
-} as const;
+type FilterKey = "status" | "priority" | "assignee";
+type Filter = {
+  key: FilterKey;
+  label: string;
+  options: Record<string, string>;
+};
 
-type FilterKey = keyof typeof FILTERS;
-const FILTER_KEYS: readonly FilterKey[] = ["status", "priority"];
+const STATUS_OPTIONS = {
+  open: "Open",
+  pending: "Pending",
+  resolved: "Resolved",
+  closed: "Closed",
+};
+const PRIORITY_OPTIONS = {
+  urgent: "Urgent",
+  high: "High",
+  medium: "Medium",
+  low: "Low",
+};
 
-/** Status and priority filters for the ticket list. They live in the URL. */
-export function TicketFilters() {
+/**
+ * Status, priority and assignee filters for the ticket list. They live in
+ * the URL. `assignees` maps a member's user id to their display name.
+ */
+export function TicketFilters({
+  assignees,
+}: {
+  assignees: Record<string, string>;
+}) {
   const router = useRouter();
   const pathname = usePathname();
   const params = useSearchParams();
+
+  const filters: readonly Filter[] = [
+    { key: "status", label: "Status", options: STATUS_OPTIONS },
+    { key: "priority", label: "Priority", options: PRIORITY_OPTIONS },
+    {
+      key: "assignee",
+      label: "Assignee",
+      options: { unassigned: "Unassigned", ...assignees },
+    },
+  ];
 
   function select(key: FilterKey, value: string) {
     const next = new URLSearchParams(params);
@@ -50,16 +68,16 @@ export function TicketFilters() {
 
   return (
     <div className="flex flex-wrap gap-2">
-      {FILTER_KEYS.map((key) => {
-        const { label, options } = FILTERS[key];
-        const labels: Record<string, string> = options;
+      {filters.map(({ key, label, options }) => {
         const current = params.get(key);
-        const currentLabel = (current && labels[current]) || "All";
+        const currentLabel = (current && options[current]) || "All";
         return (
           <DropdownMenu key={key}>
             <DropdownMenuTrigger asChild>
               <Button variant="outline" size="sm">
-                {label}: {currentLabel}
+                <span className="max-w-40 truncate">
+                  {label}: {currentLabel}
+                </span>
                 <ChevronDown className="ml-1.5 size-4" strokeWidth={1.5} />
               </Button>
             </DropdownMenuTrigger>

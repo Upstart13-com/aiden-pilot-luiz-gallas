@@ -17,6 +17,7 @@ import { PriorityBadge, StatusBadge } from "@/components/tickets/ticket-badges";
 import { TicketFilters } from "@/components/tickets/ticket-filters";
 import { apiGet } from "@/lib/api-client";
 import type {
+  OrgMembersResponse,
   TicketListResponse,
   TicketSummaryResponse,
 } from "@/lib/api-types";
@@ -35,15 +36,23 @@ export default async function TicketsPage({
   searchParams: Promise<{
     status?: string;
     priority?: string;
+    assignee?: string;
     cursor?: string;
   }>;
 }) {
-  const { status, priority, cursor } = await searchParams;
+  const { status, priority, assignee, cursor } = await searchParams;
+  const { members } = await apiGet<OrgMembersResponse>("/api/members");
+  const assignees = Object.fromEntries(
+    members.map((m) => [m.userId, m.name ?? m.email]),
+  );
 
   // Unknown filter values from the URL are ignored rather than sent on.
   const filters = new URLSearchParams();
   if (status && STATUSES.has(status)) filters.set("status", status);
   if (priority && PRIORITIES.has(priority)) filters.set("priority", priority);
+  if (assignee && (assignee === "unassigned" || assignee in assignees)) {
+    filters.set("assignee", assignee);
+  }
   const isFiltered = filters.toString() !== "";
 
   const listQuery = new URLSearchParams(filters);
@@ -104,14 +113,14 @@ export default async function TicketsPage({
         <section className="space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <h2 className="text-lg font-semibold">Recent tickets</h2>
-            <TicketFilters />
+            <TicketFilters assignees={assignees} />
           </div>
           {tickets.length === 0 && (isFiltered || cursor) ? (
             <div className="border-border rounded-sm border">
               <EmptyState
                 icon={SearchX}
                 title="No tickets match these filters"
-                description="Try another status or priority, or clear the filters to see every ticket."
+                description="Try another status, priority or assignee, or clear the filters to see every ticket."
                 action={
                   <Button asChild variant="outline" size="sm">
                     <Link href="/dashboard">Clear filters</Link>
@@ -149,6 +158,9 @@ export default async function TicketsPage({
                       Priority
                     </TableHead>
                     <TableHead className="text-foreground hidden font-semibold md:table-cell">
+                      Assignee
+                    </TableHead>
+                    <TableHead className="text-foreground hidden font-semibold lg:table-cell">
                       Opened
                     </TableHead>
                   </TableRow>
@@ -175,7 +187,16 @@ export default async function TicketsPage({
                       <TableCell className="hidden sm:table-cell">
                         <PriorityBadge priority={t.priority} />
                       </TableCell>
-                      <TableCell className="text-muted-foreground hidden whitespace-nowrap md:table-cell">
+                      <TableCell className="hidden max-w-48 truncate md:table-cell">
+                        {t.assignee ? (
+                          (t.assignee.name ?? t.assignee.email)
+                        ) : (
+                          <span className="text-muted-foreground">
+                            Unassigned
+                          </span>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-muted-foreground hidden whitespace-nowrap lg:table-cell">
                         {formatDate(t.createdAt)}
                       </TableCell>
                     </TableRow>

@@ -37,7 +37,7 @@ export type SigninsResponse = {
 };
 
 export type TicketListResponse = {
-  tickets: TicketJson[];
+  tickets: (TicketJson & { assignee: Person | null })[];
   nextCursor: string | null;
 };
 

@@ -7,6 +7,8 @@ export const RouteParams = z.object({
 export const ListTicketsQuery = z.object({
   status: z.enum(["open", "pending", "resolved", "closed"]).optional(),
   priority: z.enum(["low", "medium", "high", "urgent"]).optional(),
+  /** A member's user id, or "unassigned". */
+  assignee: z.string().min(1).max(64).optional(),
   cursor: z.string().optional(),
   limit: z.coerce.number().int().min(1).max(100).default(25),
 });

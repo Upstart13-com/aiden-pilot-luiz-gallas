@@ -23,16 +23,27 @@ export const GET = withAuth(async (req, { session }) => {
     Object.fromEntries(url.searchParams),
   );
   if (!parsed.success) throw new RequestValidationError(parsed.error);
-  const { status, priority, cursor, limit } = parsed.data;
+  const { status, priority, assignee, cursor, limit } = parsed.data;
 
   const ctx = await requireMembership(session.user.id);
   assertCan(abilities, session, "ticket.read", ctx);
 
   const rows = await prisma.ticket.findMany({
-    where: { ...ticketVisibilityWhere(ctx), status, priority },
+    where: {
+      ...ticketVisibilityWhere(ctx),
+      status,
+      priority,
+      ...(assignee && {
+        assigneeId: assignee === "unassigned" ? null : assignee,
+      }),
+    },
     orderBy: [{ createdAt: "desc" }, { id: "desc" }],
     take: limit + 1,
-    select: ticketSelect,
+    // Assignees are always members of the same org, so their name is not cross-tenant.
+    select: {
+      ...ticketSelect,
+      assignee: { select: { name: true, email: true } },
+    },
     ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
   });
 

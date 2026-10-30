@@ -87,14 +87,68 @@ describe("3a GET /api/tickets", () => {
     }
   });
 
+  it("includes the assignee's name and email, and nothing else about them", async () => {
+    await actAs("acmeOwner");
+    const { json } = await call(listTickets, "GET", {
+      query: { limit: "100" },
+    });
+    const assigned = json.tickets.find(
+      (t: { id: string }) => t.id === TICKETS.agentAssigned,
+    );
+    expect(assigned.assignee).toEqual({
+      name: expect.any(String),
+      email: "agent@acme.test",
+    });
+    const unassigned = json.tickets.find(
+      (t: { assigneeId: string | null }) => t.assigneeId === null,
+    );
+    expect(unassigned.assignee).toBeNull();
+  });
+
+  it("filters by assignee", async () => {
+    await actAs("acmeOwner");
+    const agent = await userId("acmeAgent");
+    const { json } = await call(listTickets, "GET", {
+      query: { assignee: agent, limit: "100" },
+    });
+    const ids = json.tickets.map((t: { id: string }) => t.id);
+    expect(ids).toContain(TICKETS.agentAssigned);
+    for (const t of json.tickets) expect(t.assigneeId).toBe(agent);
+  });
+
+  it("filters to unassigned tickets, still within an agent's own", async () => {
+    await actAs("acmeAgent");
+    const me = await userId("acmeAgent");
+    const { json } = await call(listTickets, "GET", {
+      query: { assignee: "unassigned", limit: "100" },
+    });
+    expect(json.tickets.length).toBeGreaterThan(0);
+    for (const t of json.tickets) {
+      expect(t.assigneeId).toBeNull();
+      expect(t.ownerId).toBe(me);
+    }
+  });
+
+  it("returns nothing for another org's assignee", async () => {
+    await actAs("acmeOwner");
+    const outsider = await userId("globexAgent");
+    const { status, json } = await call(listTickets, "GET", {
+      query: { assignee: outsider },
+    });
+    expect(status).toBe(200);
+    expect(json.tickets).toEqual([]);
+  });
+
   it("filters by status", async () => {
     await actAs("acmeOwner");
     const { json } = await call(listTickets, "GET", {
       query: { status: "resolved" },
     });
-    expect(json.tickets.map((t: { id: string }) => t.id)).toEqual([
+    // Other resolved tickets may exist besides the fixtures, so check the filter, not a fixed list.
+    expect(json.tickets.map((t: { id: string }) => t.id)).toContain(
       TICKETS.ownerOnly,
-    ]);
+    );
+    for (const t of json.tickets) expect(t.status).toBe("resolved");
   });
 
   it("pages with a cursor without repeating tickets", async () => {
