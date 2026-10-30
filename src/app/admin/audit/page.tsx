@@ -1,31 +1,54 @@
-import { redirect } from "next/navigation";
 import { PageHeader } from "@upstart13-com/aiden-ui";
 import { AuditLogTable } from "@upstart13-com/aiden-ui/components/audit-log-table";
-import { auth } from "@/lib/auth";
-import { auditReader } from "@/lib/audit";
-import { abilities } from "@/lib/abilities";
+import { EventFilter } from "@/components/admin/event-filter";
+import { listAuditEntries, listAuditEvents } from "@/lib/admin";
+import { getPageContext } from "@/lib/page-context";
+import { prisma } from "@/lib/prisma";
 
 export const dynamic = "force-dynamic";
 
-export default async function AuditLogPage() {
-  const session = await auth();
-  if (!session?.user?.id) redirect("/login?callbackUrl=/admin/audit");
+export default async function AuditPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ event?: string }>;
+}) {
+  const { ctx } = await getPageContext("/admin/audit");
+  const { event } = await searchParams;
+  const [{ entries }, events] = await Promise.all([
+    listAuditEntries(ctx.orgId, { event, limit: 100 }),
+    listAuditEvents(ctx.orgId),
+  ]);
 
-  // Server-side ability check. Members get bounced to /dashboard.
-  if (!abilities.can(session as never, "audit.read")) {
-    redirect("/dashboard");
-  }
-
-  const { entries } = await auditReader.list({ limit: 100 });
+  // The table shows `actorId` as-is; show the actor's email instead.
+  const actors = await prisma.user.findMany({
+    where: {
+      id: { in: entries.flatMap((e) => (e.actorId ? [e.actorId] : [])) },
+    },
+    select: { id: true, email: true },
+  });
+  const emailById = new Map(actors.map((a) => [a.id, a.email]));
+  const rows = entries.map((e) => ({
+    ...e,
+    actorId: e.actorId ? (emailById.get(e.actorId) ?? e.actorId) : null,
+    metadata: e.metadata as Record<string, unknown> | null,
+  }));
 
   return (
     <div>
       <PageHeader
-        title="Audit log"
-        subtitle="Showing the most recent 100 events. Sign-in, sign-out, registration, ownership failures, and ability denials are recorded automatically."
+        title="Audit trail"
+        subtitle="The latest 100 actions and denied requests by members of your organization."
       />
-      <div className="space-y-8 px-6 py-8">
-        <AuditLogTable entries={entries} />
+      <div className="space-y-4 px-6 py-8">
+        <EventFilter events={events} current={event} />
+        <AuditLogTable
+          entries={rows}
+          emptyState={
+            event
+              ? `No "${event}" events yet.`
+              : "No activity yet. Ticket changes, role changes and denied requests will appear here."
+          }
+        />
       </div>
     </div>
   );

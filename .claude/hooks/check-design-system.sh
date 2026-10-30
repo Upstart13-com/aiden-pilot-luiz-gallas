@@ -41,14 +41,15 @@ if [ -n "$COLORS" ]; then
   VIOLATIONS="${VIOLATIONS}HARDCODED COLORS — use CSS variable tokens instead:\n${COLORS}\nExamples: bg-background, text-foreground, text-muted-foreground, bg-primary, bg-destructive, border-border, bg-accent\n\n"
 fi
 
-# ── Rule 2: Large border radius ───────────────────────────────────────────────
-# CLAUDE.md: default is rounded-sm (4px). Only Avatar uses rounded-full.
-ROUNDED=$(grep -nE '\brounded-(lg|xl|2xl|3xl)\b' "$FULL_PATH" 2>/dev/null \
+# ── Rule 2: Border radius above the DS scale ─────────────────────────────────
+# DS scale: rounded-sm (default), -md (inputs), -lg (buttons/badges),
+# -xl (cards), -2xl (modals), -full (avatars/dots). Flag only what is above it.
+ROUNDED=$(grep -nE '\brounded(-[a-z]{1,2})?-([3-9]xl|\[)' "$FULL_PATH" 2>/dev/null \
   | grep -v '^\s*//' \
   | head -3 || true)
 
 if [ -n "$ROUNDED" ]; then
-  VIOLATIONS="${VIOLATIONS}LARGE BORDER RADIUS — use rounded-sm (4px) by default:\n${ROUNDED}\nOnly avatars get rounded-full. Remove rounded-lg, rounded-xl, rounded-2xl, rounded-3xl.\n\n"
+  VIOLATIONS="${VIOLATIONS}BORDER RADIUS ABOVE THE DS SCALE — never go above rounded-2xl:\n${ROUNDED}\nUse rounded-sm, -md (inputs), -lg (buttons/badges), -xl (cards) or -2xl (modals); no arbitrary values.\n\n"
 fi
 
 # ── Rule 3: Default exports (non-route files) ─────────────────────────────────

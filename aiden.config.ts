@@ -17,8 +17,9 @@ export const aidenConfig = {
   app: {
     name: "Deskline",
     shortName: "deskline",
-    tagline: "Your product tagline goes here.",
-    description: "A short description of your app for metadata and previews.",
+    tagline: "The AI-assisted support desk for your whole team.",
+    description:
+      "Deskline is a multi-tenant support desk where agents triage and answer customer tickets with AI-drafted replies.",
     supportEmail: "support@deskline.com",
     url: "",
     companyLegalName: "Deskline, Inc.",

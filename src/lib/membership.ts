@@ -20,26 +20,30 @@ export type MembershipContext = {
 };
 
 /**
- * Resolve the caller's org and role.
- *
- * Throws `OwnershipError` (404) when the user belongs to no org.
+ * The caller's org and role, or `null` when they belong to no org.
  *
  * v1 resolves a single membership per user (D4). This function is the only
  * place that assumption lives — lifting it to multi-org means reading an
  * active-org id here and verifying the caller holds a membership in it, and
  * changes nothing else. See docs/plans/deskline.md §1.2.
  */
-export async function requireMembership(
+export async function findMembership(
   userId: string,
-): Promise<MembershipContext> {
+): Promise<MembershipContext | null> {
   const membership = await prisma.membership.findFirst({
     where: { userId },
     select: { orgId: true, role: true },
   });
+  return membership
+    ? { userId, orgId: membership.orgId, role: membership.role }
+    : null;
+}
 
-  if (!membership) {
-    throw new OwnershipError();
-  }
-
-  return { userId, orgId: membership.orgId, role: membership.role };
+/** Like `findMembership`, but throws `OwnershipError` (404) when there is none. */
+export async function requireMembership(
+  userId: string,
+): Promise<MembershipContext> {
+  const membership = await findMembership(userId);
+  if (!membership) throw new OwnershipError();
+  return membership;
 }

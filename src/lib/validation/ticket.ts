@@ -12,8 +12,16 @@ export const ListTicketsQuery = z.object({
 });
 
 export const CreateTicketBody = z.object({
-  subject: z.string().min(1).max(200),
-  body: z.string().min(1).max(10_000),
+  subject: z
+    .string()
+    .trim()
+    .min(1, "Add a short subject.")
+    .max(200, "Keep the subject under 200 characters."),
+  body: z
+    .string()
+    .trim()
+    .min(1, "Describe the customer's issue.")
+    .max(10_000, "Keep the description under 10,000 characters."),
   assigneeId: z.cuid().optional(),
 });
 

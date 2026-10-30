@@ -1,89 +1,89 @@
 import Link from "next/link";
 import { Button } from "@upstart13-com/aiden-ui/components/button";
 import { Badge } from "@upstart13-com/aiden-ui/components/badge";
-import { brand } from "@/config/brand";
 import {
   ArrowRight,
-  Layers,
-  ShieldCheck,
-  Database,
-  KeyRound,
+  Building2,
+  Eye,
+  Gauge,
+  Headset,
   ScrollText,
-  Wrench,
-  Terminal,
+  ShieldCheck,
+  Sparkles,
+  Tags,
+  UserCog,
 } from "lucide-react";
+import { brand } from "@/config/brand";
 
-/* ════════════════════════════════════════════════════════════════════
-   TODO: Replace this entire page with your product's landing page.
-
-   Everything below is SCAFFOLD content that ships with the AIDEN starter
-   — it markets the SDK, not your product. The `capabilities` and `steps`
-   arrays, the hero copy, and the code-panel example are all placeholders.
-   Delete what you don't need and build your real marketing page here.
-   ════════════════════════════════════════════════════════════════════ */
-
-// SCAFFOLD DATA — replace with your product's real feature list.
-const capabilities = [
+const features = [
   {
-    icon: Layers,
-    title: "createAIClient",
-    pkg: "@upstart13-com/aiden-ai",
+    icon: Tags,
+    title: "AI triage",
     description:
-      "One client across OpenAI, Anthropic, Google, and more. Provider SDKs are optional peer deps — install only what you use.",
+      "Every new ticket gets a priority, a category and the customer's sentiment the moment it's filed.",
   },
   {
-    icon: ShieldCheck,
-    title: "withAuth + assertOwnership",
-    pkg: "@upstart13-com/aiden-security",
+    icon: Sparkles,
+    title: "Draft replies",
     description:
-      "Every API route guarded by session checks, Zod-validated bodies, and IDOR-safe ownership assertions on user-owned rows.",
+      "Agents generate a reply in the tone they choose and watch it stream in. Nothing reaches the customer until they send it.",
   },
   {
-    icon: KeyRound,
-    title: "createAuth",
-    pkg: "@upstart13-com/aiden-auth",
+    icon: Building2,
+    title: "One desk per organization",
     description:
-      "NextAuth v5 with credentials, OAuth, and PostgreSQL-backed sessions. Drop-in <LoginForm /> and <RegisterForm /> components.",
+      "Each organization's tickets, members and history stay inside it. Other organizations can't see that they exist.",
   },
   {
-    icon: Database,
-    title: "Prisma schema fragments",
-    pkg: "@upstart13-com/aiden-db",
+    icon: UserCog,
+    title: "Three clear roles",
     description:
-      "Compose schema from fragments under prisma/fragments/*.prisma. Auth tables ship with the package — your schema stays focused on features.",
+      "Owners run the organization, agents work tickets, viewers follow along. No permission matrix to maintain.",
   },
   {
     icon: ScrollText,
-    title: "createLogger",
-    pkg: "@upstart13-com/aiden-logging",
+    title: "Audit trail",
     description:
-      "Structured logs with AsyncLocalStorage. requestId, userId, and route auto-attach inside withAuth — no manual plumbing.",
+      "Ticket changes, role changes and refused requests are recorded, so owners can see who did what and when.",
   },
   {
-    icon: Wrench,
-    title: "aiden CLI + codemods",
-    pkg: "@upstart13-com/aiden-cli",
+    icon: Gauge,
+    title: "AI cost in view",
     description:
-      "aiden doctor validates env. aiden upgrade bumps the train and runs codemods so breaking changes are mechanical, not manual.",
+      "Owners see token usage and spend per feature and per model, so AI cost never arrives as a surprise.",
   },
 ];
 
-// SCAFFOLD DATA — replace with your product's real onboarding steps.
-const steps = [
+const roles = [
   {
-    number: "01",
-    title: "Configure your providers",
-    body: "Drop API keys into .env, then enable features in aiden.config.ts. aiden doctor tells you exactly what's missing.",
+    icon: ShieldCheck,
+    name: "Owner",
+    summary: "Runs the organization",
+    abilities: [
+      "Reads every ticket in the organization",
+      "Manages members and their roles",
+      "Reviews the audit trail and AI spend",
+    ],
   },
   {
-    number: "02",
-    title: "Build your feature",
-    body: "Add a fragment under prisma/fragments, a route under src/app/api guarded by withAuth, and a page that calls createAIClient.",
+    icon: Headset,
+    name: "Agent",
+    summary: "Works the tickets",
+    abilities: [
+      "Files, updates and closes their tickets",
+      "Drafts replies with AI",
+      "Sees tickets they opened or are assigned",
+    ],
   },
   {
-    number: "03",
-    title: "Stay on the train",
-    body: "npx aiden upgrade bumps every @upstart13-com/aiden-* package together and applies codemods. One PR, zero drift.",
+    icon: Eye,
+    name: "Viewer",
+    summary: "Follows along",
+    abilities: [
+      "Reads every ticket in the organization",
+      "Can't change tickets or use AI",
+      "Ideal for leads and stakeholders",
+    ],
   },
 ];
 
@@ -94,40 +94,35 @@ export default function HomePage() {
       <section className="border-border relative overflow-hidden border-b">
         <div className="bg-dot-grid pointer-events-none absolute inset-0" />
         <div className="from-background/0 via-background/0 to-background pointer-events-none absolute inset-0 bg-gradient-to-b" />
-        <div className="from-background pointer-events-none absolute inset-y-0 left-0 w-32 bg-gradient-to-r to-transparent" />
-        <div className="from-background pointer-events-none absolute inset-y-0 right-0 w-32 bg-gradient-to-l to-transparent" />
 
-        <div className="relative container flex flex-col items-center py-32 text-center md:py-44">
-          {/* TODO: replace badge + headline with your product's hero */}
+        <div className="relative container flex flex-col items-center py-24 text-center md:py-40">
           <Badge
             variant="outline"
             className="text-muted-foreground mb-8 font-mono text-xs tracking-widest"
           >
-            STARTER SCAFFOLD
+            AI-ASSISTED SUPPORT DESK
           </Badge>
 
           <p className="text-accent mb-4 font-mono text-sm tracking-widest">
             {brand.name}
           </p>
 
-          <h1 className="max-w-4xl text-6xl leading-none font-bold tracking-tight md:text-8xl">
-            Your app
+          <h1 className="max-w-4xl text-5xl leading-none font-bold tracking-tight sm:text-6xl md:text-8xl">
+            Every ticket,
             <br />
-            <span className="text-accent">[is live.]</span>
+            <span className="text-accent">[triaged.]</span>
           </h1>
 
           <p className="text-muted-foreground mt-8 max-w-xl text-lg leading-relaxed">
-            This is the AIDEN starter landing page. Edit{" "}
-            <code className="bg-muted text-foreground rounded-sm px-1.5 py-0.5 font-mono text-base">
-              src/app/(marketing)/page.tsx
-            </code>{" "}
-            to make this page yours, or jump straight into the dashboard.
+            Deskline gives your support team one place to triage, answer and
+            close customer tickets, with AI that sorts the queue and drafts the
+            first reply.
           </p>
 
           <div className="mt-10 flex flex-wrap items-center justify-center gap-3">
             <Button asChild size="lg" className="px-8">
               <Link href="/dashboard">
-                Dashboard
+                Open your desk
                 <ArrowRight className="size-4" strokeWidth={1.5} />
               </Link>
             </Button>
@@ -138,35 +133,22 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* ── Capabilities ───────────────────────────────────────── */}
+      {/* ── Features ─────────────────────────────────────────────── */}
       <section className="border-border border-b">
-        <div className="container py-24 md:py-32">
-          <div className="mb-16 flex items-start justify-between gap-8">
-            <div className="max-w-xl space-y-3">
-              <p className="text-muted-foreground font-mono text-xs tracking-widest uppercase">
-                [01 — What&apos;s wired up]
-              </p>
-              <h2 className="text-4xl leading-tight font-bold tracking-tight md:text-5xl">
-                Six packages.
-                <br />
-                One foundation.
-              </h2>
-            </div>
-            <p className="text-muted-foreground mt-auto hidden max-w-xs pb-1 text-sm leading-relaxed md:block">
-              Each capability ships as a versioned{" "}
-              <code className="bg-muted text-foreground rounded-sm px-1 py-0.5 font-mono text-xs">
-                @upstart13-com/aiden-*
-              </code>{" "}
-              package. Use them through the thin{" "}
-              <code className="bg-muted text-foreground rounded-sm px-1 py-0.5 font-mono text-xs">
-                src/lib/*
-              </code>{" "}
-              wrappers in your app.
+        <div className="container py-20 md:py-32">
+          <div className="mb-12 max-w-xl space-y-3 md:mb-16">
+            <p className="text-muted-foreground font-mono text-xs tracking-widest uppercase">
+              [01 — What it does]
             </p>
+            <h2 className="text-4xl leading-tight font-bold tracking-tight md:text-5xl">
+              Less sorting.
+              <br />
+              More answering.
+            </h2>
           </div>
 
           <div className="border-border bg-border grid grid-cols-1 gap-px border sm:grid-cols-2 lg:grid-cols-3">
-            {capabilities.map(({ icon: Icon, title, pkg, description }) => (
+            {features.map(({ icon: Icon, title, description }) => (
               <div
                 key={title}
                 className="group bg-background hover:bg-muted/30 space-y-5 p-8 transition-colors"
@@ -178,13 +160,10 @@ export default function HomePage() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <h3 className="font-mono text-sm font-semibold tracking-tight">
+                  <h3 className="text-base font-semibold tracking-tight">
                     {title}
                   </h3>
-                  <p className="text-muted-foreground/70 font-mono text-xs tracking-wide">
-                    {pkg}
-                  </p>
-                  <p className="text-muted-foreground pt-1 text-sm leading-relaxed">
+                  <p className="text-muted-foreground text-sm leading-relaxed">
                     {description}
                   </p>
                 </div>
@@ -194,183 +173,65 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* ── How it works ───────────────────────────────────────── */}
+      {/* ── Roles ────────────────────────────────────────────────── */}
       <section className="border-border bg-muted/20 border-b">
-        <div className="container py-24 md:py-32">
-          <div className="mb-16 space-y-3">
+        <div className="container py-20 md:py-32">
+          <div className="mb-12 max-w-xl space-y-3 md:mb-16">
             <p className="text-muted-foreground font-mono text-xs tracking-widest uppercase">
-              [02 — Workflow]
+              [02 — Who does what]
             </p>
             <h2 className="text-4xl leading-tight font-bold tracking-tight md:text-5xl">
-              Configure. Build.
+              Three roles.
               <br />
-              Stay on the train.
+              <span className="text-accent">[No guesswork.]</span>
             </h2>
           </div>
 
-          <div className="border-border grid grid-cols-1 gap-0 border md:grid-cols-3">
-            {steps.map(({ number, title, body }, i) => (
+          <div className="border-border grid grid-cols-1 border md:grid-cols-3">
+            {roles.map(({ icon: Icon, name, summary, abilities }, i) => (
               <div
-                key={number}
-                className={`space-y-6 p-10 ${i < steps.length - 1 ? "border-border border-b md:border-r md:border-b-0" : ""}`}
+                key={name}
+                className={`bg-background space-y-6 p-8 md:p-10 ${i < roles.length - 1 ? "border-border border-b md:border-r md:border-b-0" : ""}`}
               >
-                <span className="text-accent font-mono text-5xl leading-none font-bold">
-                  {number}
-                </span>
-                <div className="border-border space-y-2 border-t pt-2">
-                  <h3 className="text-base font-semibold tracking-tight">
-                    {title}
-                  </h3>
-                  <p className="text-muted-foreground text-sm leading-relaxed">
-                    {body}
-                  </p>
+                <div className="flex items-center gap-3">
+                  <Icon className="text-accent size-5" strokeWidth={1.5} />
+                  <div>
+                    <h3 className="text-base font-semibold tracking-tight">
+                      {name}
+                    </h3>
+                    <p className="text-muted-foreground font-mono text-xs tracking-wide">
+                      {summary}
+                    </p>
+                  </div>
                 </div>
+                <ul className="border-border space-y-3 border-t pt-6">
+                  {abilities.map((item) => (
+                    <li key={item} className="flex items-start gap-3 text-sm">
+                      <span className="bg-accent mt-1.5 size-1.5 shrink-0 rounded-full" />
+                      <span className="text-muted-foreground">{item}</span>
+                    </li>
+                  ))}
+                </ul>
               </div>
             ))}
           </div>
         </div>
       </section>
 
-      {/* ── Developer section ──────────────────────────────────── */}
-      <section className="border-border border-b">
-        <div className="container py-24 md:py-32">
-          <div className="grid grid-cols-1 items-center gap-16 lg:grid-cols-2">
-            <div className="space-y-8">
-              <div className="space-y-3">
-                <p className="text-muted-foreground font-mono text-xs tracking-widest uppercase">
-                  [03 — A guarded route, end to end]
-                </p>
-                <h2 className="text-4xl leading-tight font-bold tracking-tight md:text-5xl">
-                  Auth, validation,
-                  <br />
-                  ownership, AI —
-                  <br />
-                  <span className="text-accent">[in one handler.]</span>
-                </h2>
-              </div>
-              <p className="text-muted-foreground max-w-sm leading-relaxed">
-                Every API route follows the same shape:{" "}
-                <code className="bg-muted text-foreground rounded-sm px-1 py-0.5 font-mono text-xs">
-                  withAuth
-                </code>
-                ,{" "}
-                <code className="bg-muted text-foreground rounded-sm px-1 py-0.5 font-mono text-xs">
-                  parseRequest
-                </code>
-                ,{" "}
-                <code className="bg-muted text-foreground rounded-sm px-1 py-0.5 font-mono text-xs">
-                  assertOwnership
-                </code>
-                . The SDK handles the plumbing — you write the feature.
-              </p>
-              <ul className="space-y-3">
-                {[
-                  "withAuth attaches requestId + userId to logs",
-                  "parseRequest validates bodies via Zod",
-                  "assertOwnership prevents IDOR on user data",
-                  "createAIClient swaps providers without rewrites",
-                ].map((item) => (
-                  <li key={item} className="flex items-start gap-3 text-sm">
-                    <span className="border-accent/40 mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-sm border">
-                      <span className="text-accent font-mono text-xs font-bold">
-                        ✓
-                      </span>
-                    </span>
-                    <span className="text-muted-foreground">{item}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-
-            <div className="border-border overflow-hidden rounded-xl border">
-              <div className="border-border bg-muted/30 flex items-center justify-between border-b px-5 py-3">
-                <div className="flex items-center gap-2">
-                  <Terminal
-                    className="text-muted-foreground size-3.5"
-                    strokeWidth={1.5}
-                  />
-                  <span className="text-muted-foreground font-mono text-xs">
-                    src/app/api/messages/route.ts
-                  </span>
-                </div>
-                <span className="text-muted-foreground/50 font-mono text-xs">
-                  TypeScript
-                </span>
-              </div>
-              <div className="bg-muted/10 p-6">
-                <pre className="overflow-x-auto font-mono text-sm leading-relaxed">
-                  <code>
-                    <span className="text-accent">import</span>
-                    {" { withAuth, parseRequest } "}
-                    <span className="text-accent">from</span>
-                    {' "@upstart13-com/aiden-security";\n'}
-                    <span className="text-accent">import</span>
-                    {" { createAIClient } "}
-                    <span className="text-accent">from</span>
-                    {' "@/lib/ai";\n'}
-                    <span className="text-accent">import</span>
-                    {" { z } "}
-                    <span className="text-accent">from</span>
-                    {' "zod";\n\n'}
-                    <span className="text-muted-foreground">{"const"}</span>
-                    {" Body = z.object({ prompt: z.string().min(1) });\n\n"}
-                    <span className="text-accent">export const</span>
-                    {" POST = "}
-                    <span className="text-muted-foreground">withAuth</span>
-                    {"("}
-                    <span className="text-accent">async</span>
-                    {" (req, { session }) => {\n"}
-                    {"  "}
-                    <span className="text-accent">const</span>
-                    {" body = "}
-                    <span className="text-accent">await</span>
-                    {" parseRequest(req, Body);\n"}
-                    {"  "}
-                    <span className="text-accent">const</span>
-                    {" ai = createAIClient({\n"}
-                    {"    provider: "}
-                    <span className="text-accent">{'"anthropic"'}</span>
-                    {",\n"}
-                    {"    model: "}
-                    <span className="text-accent">{'"claude-opus-4-7"'}</span>
-                    {",\n  });\n"}
-                    {"  "}
-                    <span className="text-accent">return</span>
-                    {" ai.chat({ messages: [\n"}
-                    {"    { role: "}
-                    <span className="text-accent">{'"user"'}</span>
-                    {", content: body.prompt },\n"}
-                    {"  ] });\n"}
-                    {"});"}
-                  </code>
-                </pre>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* ── Final CTA ──────────────────────────────────────────── */}
+      {/* ── Final CTA ────────────────────────────────────────────── */}
       <section className="bg-foreground text-background">
-        <div className="container flex flex-col items-center py-24 text-center md:py-32">
+        <div className="container flex flex-col items-center py-20 text-center md:py-32">
           <p className="mb-6 font-mono text-xs tracking-widest uppercase opacity-50">
-            [Next steps]
+            [Get started]
           </p>
           <h2 className="max-w-3xl text-4xl leading-tight font-bold tracking-tight md:text-6xl">
-            The foundation is wired.
+            Bring your team.
             <br />
-            Build your feature.
+            Clear the queue.
           </h2>
           <p className="mt-6 max-w-md text-lg leading-relaxed opacity-60">
-            Run{" "}
-            <code className="bg-background/10 rounded-sm px-1.5 py-0.5 font-mono text-base">
-              npx aiden doctor
-            </code>{" "}
-            to validate your environment, then start with{" "}
-            <code className="bg-background/10 rounded-sm px-1.5 py-0.5 font-mono text-base">
-              src/app/dashboard
-            </code>
-            .
+            Create an account, ask your organization&apos;s owner to add you,
+            and start working tickets.
           </p>
           <div className="mt-10 flex flex-wrap items-center justify-center gap-3">
             <Button
@@ -378,8 +239,8 @@ export default function HomePage() {
               size="lg"
               className="bg-background text-foreground hover:bg-background/90 px-8"
             >
-              <Link href="/dashboard">
-                Dashboard
+              <Link href="/register">
+                Create an account
                 <ArrowRight className="size-4" strokeWidth={1.5} />
               </Link>
             </Button>
