@@ -1,38 +1,39 @@
 import { NextResponse } from "next/server";
-import { withAuth, assertCan } from "@/lib/security";
-import { auditReader } from "@/lib/audit";
+import { withAuth, assertCan, RequestValidationError } from "@/lib/security";
 import { abilities } from "@/lib/abilities";
+import { requireMembership } from "@/lib/membership";
+import { prisma } from "@/lib/prisma";
+import { AuditQuery } from "@/lib/validation/admin";
 
-const MAX_LIMIT = 200;
-
+/**
+ * Org-scoped audit trail. The SDK's `auditReader` has no tenant filter
+ * (gap G2), so this reads the AuditLog table directly, limited to entries
+ * whose actor is a member of the caller's org.
+ */
 export const GET = withAuth(async (req, { session }) => {
-  assertCan(abilities, session, "audit.read");
-
   const url = new URL(req.url);
-  const limit = clamp(
-    parseInt(url.searchParams.get("limit") ?? "50", 10),
-    1,
-    MAX_LIMIT
-  );
-  const cursor = url.searchParams.get("cursor") ?? undefined;
-  const event = url.searchParams.get("event") ?? undefined;
-  const userId = url.searchParams.get("userId") ?? undefined;
-  const from = url.searchParams.get("from");
-  const to = url.searchParams.get("to");
+  const parsed = AuditQuery.safeParse(Object.fromEntries(url.searchParams));
+  if (!parsed.success) throw new RequestValidationError(parsed.error);
+  const { event, cursor, limit } = parsed.data;
 
-  const page = await auditReader.list({
-    limit,
-    cursor,
-    event,
-    userId,
-    from: from ? new Date(from) : undefined,
-    to: to ? new Date(to) : undefined,
+  const ctx = await requireMembership(session.user.id);
+  assertCan(abilities, session, "org.audit.read", ctx);
+
+  const members = await prisma.membership.findMany({
+    where: { orgId: ctx.orgId },
+    select: { userId: true },
   });
 
-  return NextResponse.json(page);
-});
+  const rows = await prisma.auditLog.findMany({
+    where: { actorId: { in: members.map((m) => m.userId) }, event },
+    orderBy: [{ timestamp: "desc" }, { id: "desc" }],
+    take: limit + 1,
+    ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+  });
 
-function clamp(n: number, lo: number, hi: number): number {
-  if (Number.isNaN(n)) return lo;
-  return Math.min(Math.max(n, lo), hi);
-}
+  const entries = rows.slice(0, limit);
+  const nextCursor =
+    rows.length > limit ? entries[entries.length - 1].id : null;
+
+  return NextResponse.json({ entries, nextCursor });
+});
