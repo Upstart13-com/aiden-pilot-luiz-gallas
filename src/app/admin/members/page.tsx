@@ -8,6 +8,7 @@ import {
   TableHeader,
   TableRow,
 } from "@upstart13-com/aiden-ui";
+import { AddMemberDialog } from "@/components/admin/add-member-dialog";
 import { RoleMenu } from "@/components/admin/role-menu";
 import { apiGet } from "@/lib/api-client";
 import type { MembersResponse } from "@/lib/api-types";
@@ -25,6 +26,7 @@ export default async function MembersPage() {
       <PageHeader
         title="Members"
         subtitle="Choose who can work on tickets and who can only read them."
+        action={<AddMemberDialog />}
       />
       <div className="space-y-8 px-6 py-8">
         <div className="border-border rounded-sm border">

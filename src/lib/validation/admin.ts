@@ -9,3 +9,8 @@ export const AuditQuery = z.object({
   cursor: z.string().optional(),
   limit: z.coerce.number().int().min(1).max(200).default(50),
 });
+
+export const AddMemberBody = z.object({
+  email: z.email("Enter a valid email address.").trim(),
+  role: z.enum(["owner", "agent", "viewer"]),
+});
