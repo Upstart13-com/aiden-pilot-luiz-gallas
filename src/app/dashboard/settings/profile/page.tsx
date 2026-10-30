@@ -15,7 +15,7 @@ export default async function ProfileSettingsPage() {
         image: me.image,
         createdAt: me.createdAt,
         accounts: me.accounts,
-        roles: me.roles,
+        membership: me.membership,
       }}
     />
   );

@@ -17,6 +17,7 @@ describe("GET /api/me", () => {
     expect(status).toBe(200);
     expect(json.membership).toEqual({
       orgId: await orgId("acme"),
+      orgName: "Acme Support",
       role: "agent",
     });
     expect(json).not.toHaveProperty("passwordHash");

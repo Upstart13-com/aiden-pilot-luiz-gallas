@@ -24,7 +24,7 @@ export type MeResponse = {
   hasPassword: boolean;
   accounts: { provider: string; providerAccountId: string; type: string }[];
   roles: { name: string; description: string | null }[];
-  membership: { orgId: string; role: MembershipRole } | null;
+  membership: { orgId: string; orgName: string; role: MembershipRole } | null;
 };
 
 export type SigninsResponse = {

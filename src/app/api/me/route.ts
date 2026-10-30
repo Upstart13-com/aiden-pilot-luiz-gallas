@@ -29,6 +29,12 @@ export const GET = withAuth(async (_req, { session }) => {
   }
 
   const membership = await findMembership(session.user.id);
+  const org = membership
+    ? await prisma.org.findUnique({
+        where: { id: membership.orgId },
+        select: { name: true },
+      })
+    : null;
 
   // Derive `hasPassword` from a separate, minimal query so the bcrypt hash
   // is never materialized into the rich `user` object above (avoids
@@ -49,7 +55,11 @@ export const GET = withAuth(async (_req, { session }) => {
     accounts: user.accounts,
     roles: user.roles,
     membership: membership
-      ? { orgId: membership.orgId, role: membership.role }
+      ? {
+          orgId: membership.orgId,
+          orgName: org?.name ?? "",
+          role: membership.role,
+        }
       : null,
   });
 });
