@@ -10,6 +10,7 @@ import { abilities } from "@/lib/abilities";
 import { requireMembership } from "@/lib/membership";
 import { assertAssigneeInOrg, assertTicketVisible } from "@/lib/tickets";
 import { prisma } from "@/lib/prisma";
+import { triageTicket } from "@/lib/triage";
 import { RouteParams, UpdateTicketBody } from "@/lib/validation/ticket";
 
 type Params = Promise<{ id: string }>;
@@ -46,15 +47,19 @@ export const PATCH = withAuth<Params>(async (req, { session, params }) => {
   });
   assertTicketVisible(ticket, ctx);
 
-  const updated = await prisma.ticket.update({
+  const saved = await prisma.ticket.update({
     where: { id: ticket.id },
     data: body,
   });
+  const contentChanged = body.subject !== undefined || body.body !== undefined;
+  const updatedTicket = contentChanged && saved.status !== "closed"
+    ? await triageTicket(saved, ctx) 
+    : saved;
   auditLog({
     event: "ticket.updated",
-    resourceId: updated.id,
+    resourceId: updatedTicket.id,
     metadata: { orgId: ctx.orgId, fields: Object.keys(body) },
   });
 
-  return NextResponse.json({ ticket: updated });
+  return NextResponse.json({ ticket: updatedTicket });
 });

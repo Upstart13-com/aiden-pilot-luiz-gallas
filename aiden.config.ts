@@ -35,17 +35,27 @@ export const aidenConfig = {
   },
 
   ai: {
-    /**
-     * Toggle providers with `enabled` and optionally pin a default `model`.
-     * When `model` is omitted, src/lib/ai.ts falls back to a built-in default.
-     */
+    /** The active provider. Change this one line to swap vendors. */
+    defaultProvider: "anthropic",
+
+    /** Toggle providers. Install the matching SDK for each enabled one. */
     providers: {
       openai: false,
-      anthropic: false,
+      anthropic: true,
       google: false,
       mistral: false,
       groq: false,
       cohere: false,
+    },
+
+    /** Default model per provider, read by src/lib/ai.ts. */
+    models: {
+      openai: "gpt-4o-mini",
+      anthropic: "claude-haiku-4-5",
+      google: "gemini-2.5-flash",
+      mistral: "mistral-small-latest",
+      groq: "llama-3.3-70b-versatile",
+      cohere: "command-r",
     },
   },
 

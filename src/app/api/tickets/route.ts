@@ -10,6 +10,7 @@ import { abilities } from "@/lib/abilities";
 import { requireMembership } from "@/lib/membership";
 import { assertAssigneeInOrg, ticketVisibilityWhere } from "@/lib/tickets";
 import { prisma } from "@/lib/prisma";
+import { triageTicket } from "@/lib/triage";
 import { CreateTicketBody, ListTicketsQuery } from "@/lib/validation/ticket";
 
 export const GET = withAuth(async (req, { session }) => {
@@ -44,7 +45,7 @@ export const POST = withAuth(async (req, { session }) => {
   assertCan(abilities, session, "ticket.create", ctx);
   await assertAssigneeInOrg(body.assigneeId, ctx.orgId);
 
-  const ticket = await prisma.ticket.create({
+  const created = await prisma.ticket.create({
     data: {
       orgId: ctx.orgId,
       ownerId: ctx.userId,
@@ -53,6 +54,7 @@ export const POST = withAuth(async (req, { session }) => {
       body: body.body,
     },
   });
+  const ticket = await triageTicket(created, ctx);
   auditLog({
     event: "ticket.created",
     resourceId: ticket.id,
