@@ -42,7 +42,7 @@ export const aidenConfig = {
     /** Toggle providers. Install the matching SDK for each enabled one. */
     providers: {
       openai: false,
-      anthropic: true,
+      anthropic: false,
       google: false,
       mistral: false,
       groq: false,

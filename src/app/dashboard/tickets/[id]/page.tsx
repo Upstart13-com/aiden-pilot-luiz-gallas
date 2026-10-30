@@ -12,11 +12,14 @@ import {
   TabsList,
   TabsTrigger,
 } from "@upstart13-com/aiden-ui";
+import { AssigneeMenu } from "@/components/tickets/assignee-menu";
 import { CloseTicketButton } from "@/components/tickets/close-ticket-button";
 import { DraftPanel } from "@/components/tickets/draft-panel";
+import { EditTicketDialog } from "@/components/tickets/edit-ticket-dialog";
+import { StatusMenu } from "@/components/tickets/status-menu";
 import { PriorityBadge, StatusBadge } from "@/components/tickets/ticket-badges";
 import { apiGet } from "@/lib/api-client";
-import type { TicketDetailResponse } from "@/lib/api-types";
+import type { OrgMembersResponse, TicketDetailResponse } from "@/lib/api-types";
 import { formatDate, formatDateTime } from "@/lib/format";
 import { getViewer, viewerCan } from "@/lib/page-context";
 
@@ -34,13 +37,28 @@ export default async function TicketPage({
     `/api/tickets/${encodeURIComponent(id)}`,
   );
 
-  const canClose = ticket.status !== "closed" && viewerCan(me, "ticket.close");
+  const isOpen = ticket.status !== "closed";
+  const canClose = isOpen && viewerCan(me, "ticket.close");
+  // Closed tickets are read-only in the UI.
+  const canEdit = isOpen && viewerCan(me, "ticket.update");
+  const agents = canEdit
+    ? (await apiGet<OrgMembersResponse>("/api/members")).members.filter(
+        (m) => m.role === "agent",
+      )
+    : [];
   const canDraft = viewerCan(me, "ai.invoke");
   const person = (u: { name: string | null; email: string } | null) =>
     u ? (u.name ?? u.email) : "Unassigned";
 
   const details = [
-    { label: "Status", value: <StatusBadge status={ticket.status} /> },
+    {
+      label: "Status",
+      value: canEdit ? (
+        <StatusMenu ticketId={ticket.id} status={ticket.status} />
+      ) : (
+        <StatusBadge status={ticket.status} />
+      ),
+    },
     { label: "Priority", value: <PriorityBadge priority={ticket.priority} /> },
     {
       label: "Category",
@@ -54,7 +72,20 @@ export default async function TicketPage({
         ? ticket.sentiment[0].toUpperCase() + ticket.sentiment.slice(1)
         : "Not triaged",
     },
-    { label: "Assignee", value: person(ticket.assignee) },
+    {
+      label: "Assignee",
+      value: canEdit ? (
+        <AssigneeMenu
+          ticketId={ticket.id}
+          assigneeId={ticket.assigneeId}
+          ownerId={ticket.ownerId}
+          currentUserId={me.id}
+          agents={agents}
+        />
+      ) : (
+        person(ticket.assignee)
+      ),
+    },
   ];
 
   const activity = [
@@ -89,8 +120,22 @@ export default async function TicketPage({
               Opened by {person(ticket.owner)} · {formatDate(ticket.createdAt)}
             </p>
           </div>
-          {canClose && (
-            <CloseTicketButton ticketId={ticket.id} subject={ticket.subject} />
+          {(canEdit || canClose) && (
+            <div className="flex shrink-0 gap-2">
+              {canEdit && (
+                <EditTicketDialog
+                  ticketId={ticket.id}
+                  subject={ticket.subject}
+                  body={ticket.body}
+                />
+              )}
+              {canClose && (
+                <CloseTicketButton
+                  ticketId={ticket.id}
+                  subject={ticket.subject}
+                />
+              )}
+            </div>
           )}
         </div>
       </div>

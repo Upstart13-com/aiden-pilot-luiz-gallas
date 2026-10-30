@@ -47,3 +47,21 @@ export async function requireMembership(
   if (!membership) throw new OwnershipError();
   return membership;
 }
+
+/** Members of an org, for assignee pickers. Explicit fields only. */
+export async function listOrgMembers(orgId: string) {
+  const rows = await prisma.membership.findMany({
+    where: { orgId },
+    select: {
+      role: true,
+      user: { select: { id: true, name: true, email: true } },
+    },
+    orderBy: { createdAt: "asc" },
+  });
+  return rows.map((m) => ({
+    userId: m.user.id,
+    name: m.user.name,
+    email: m.user.email,
+    role: m.role,
+  }));
+}

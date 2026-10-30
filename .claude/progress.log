@@ -33,3 +33,6 @@
 [2026-10-30 14:32] completed fix(security): security review findings — explicit select on ticket, audit (no ip/user agent/request id), usage and member responses; seed requires SEED_PASSWORD (no committed default, blank in .env.example). 121 tests pass
 [2026-10-30 14:34] completed chore(aiden): Phase 9 — aiden upgrade --dry-run blocked at version lookup (GitHub Packages 401: GITHUB_PAT not set in agent shell), pinned dry run up to date, no files written; aiden doctor run
 [2026-10-30 14:39] completed chore(aiden): aiden upgrade --dry-run with registry access — latest published 2.0.1, already up to date, no files written
+[2026-10-30 14:57] completed docs(plan): Phase 10 (live AI checks) cancelled — triage, draft stream, ai_usage tagging and injection containment remain verified only against the fake AI client; Phase 11 added: ticket editing UI (edit dialog, status picker, assignee picker) + read-only GET /api/members
+[2026-10-30 15:02] completed feat(ui): Phase 11 — ticket edit dialog, status picker and assignee picker on the detail page (agents only, open tickets only) + GET /api/members (ticket.update, explicit fields); assignee handoff redirects when the agent loses access; 125 tests pass; checked as owner, agent and viewer (edit save not exercised live to avoid a real triage call)
+[2026-10-30 15:09] completed docs(plan): Phase 11 marked done

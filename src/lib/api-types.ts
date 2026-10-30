@@ -64,6 +64,15 @@ export type MembersResponse = {
   }[];
 };
 
+export type OrgMembersResponse = {
+  members: {
+    userId: string;
+    name: string | null;
+    email: string;
+    role: MembershipRole;
+  }[];
+};
+
 export type AuditResponse = {
   entries: {
     id: string;
