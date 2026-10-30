@@ -1,6 +1,7 @@
 import Link from "next/link";
-import { Inbox } from "lucide-react";
+import { ChevronRight, Inbox, SearchX } from "lucide-react";
 import {
+  Button,
   PageHeader,
   Table,
   TableBody,
@@ -13,6 +14,7 @@ import { EmptyState } from "@/components/empty-state";
 import { MetricCard } from "@/components/metric-card";
 import { NewTicketDialog } from "@/components/tickets/new-ticket-dialog";
 import { PriorityBadge, StatusBadge } from "@/components/tickets/ticket-badges";
+import { TicketFilters } from "@/components/tickets/ticket-filters";
 import { apiGet } from "@/lib/api-client";
 import type {
   TicketListResponse,
@@ -23,10 +25,42 @@ import { getViewer, viewerCan } from "@/lib/page-context";
 
 export const dynamic = "force-dynamic";
 
-export default async function TicketsPage() {
+const PAGE_SIZE = "25";
+const STATUSES = new Set(["open", "pending", "resolved", "closed"]);
+const PRIORITIES = new Set(["low", "medium", "high", "urgent"]);
+
+export default async function TicketsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{
+    status?: string;
+    priority?: string;
+    cursor?: string;
+  }>;
+}) {
+  const { status, priority, cursor } = await searchParams;
+
+  // Unknown filter values from the URL are ignored rather than sent on.
+  const filters = new URLSearchParams();
+  if (status && STATUSES.has(status)) filters.set("status", status);
+  if (priority && PRIORITIES.has(priority)) filters.set("priority", priority);
+  const isFiltered = filters.toString() !== "";
+
+  const listQuery = new URLSearchParams(filters);
+  listQuery.set("limit", PAGE_SIZE);
+  if (cursor) listQuery.set("cursor", cursor);
+
+  /** A link to the list with the current filters, at a page. */
+  const pageHref = (pageCursor?: string) => {
+    const query = new URLSearchParams(filters);
+    if (pageCursor) query.set("cursor", pageCursor);
+    const qs = query.toString();
+    return qs ? `/dashboard?${qs}` : "/dashboard";
+  };
+
   const { me, membership } = await getViewer();
-  const [{ tickets }, summary] = await Promise.all([
-    apiGet<TicketListResponse>("/api/tickets?limit=50"),
+  const [{ tickets, nextCursor }, summary] = await Promise.all([
+    apiGet<TicketListResponse>(`/api/tickets?${listQuery}`),
     apiGet<TicketSummaryResponse>("/api/tickets/summary"),
   ]);
   const canCreate = viewerCan(me, "ticket.create");
@@ -68,8 +102,24 @@ export default async function TicketsPage() {
         </div>
 
         <section className="space-y-4">
-          <h2 className="text-lg font-semibold">Recent tickets</h2>
-          {tickets.length === 0 ? (
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <h2 className="text-lg font-semibold">Recent tickets</h2>
+            <TicketFilters />
+          </div>
+          {tickets.length === 0 && (isFiltered || cursor) ? (
+            <div className="border-border rounded-sm border">
+              <EmptyState
+                icon={SearchX}
+                title="No tickets match these filters"
+                description="Try another status or priority, or clear the filters to see every ticket."
+                action={
+                  <Button asChild variant="outline" size="sm">
+                    <Link href="/dashboard">Clear filters</Link>
+                  </Button>
+                }
+              />
+            </div>
+          ) : tickets.length === 0 ? (
             <div className="border-border rounded-sm border">
               <EmptyState
                 icon={Inbox}
@@ -132,6 +182,24 @@ export default async function TicketsPage() {
                   ))}
                 </TableBody>
               </Table>
+            </div>
+          )}
+
+          {(cursor || nextCursor) && (
+            <div className="flex justify-end gap-2">
+              {cursor && (
+                <Button asChild variant="ghost" size="sm">
+                  <Link href={pageHref()}>First page</Link>
+                </Button>
+              )}
+              {nextCursor && (
+                <Button asChild variant="outline" size="sm">
+                  <Link href={pageHref(nextCursor)}>
+                    Next page
+                    <ChevronRight className="ml-1.5 size-4" strokeWidth={1.5} />
+                  </Link>
+                </Button>
+              )}
             </div>
           )}
         </section>

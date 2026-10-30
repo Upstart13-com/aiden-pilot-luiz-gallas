@@ -41,3 +41,5 @@
 [2026-10-30 15:24] completed docs(plan): Phase 12 marked done
 [2026-10-30 15:29] fix(settings): profile 'Your roles' card showed the starter's unused app-wide roles ('No roles assigned'); now 'Your organization' with org name, membership role and what it allows; /api/me membership includes orgName
 [2026-10-30 15:30] completed docs(plan): added Phase 12a (profile shows org role), marked done
+[2026-10-30 15:32] completed docs(plan): removed Phases 13 (reopen tickets) and 14 (create/rename orgs); only Phase 15 remains
+[2026-10-30 15:35] completed feat(tickets): Phase 15 ticket list status/priority filters + cursor paging in the URL — browser-verified (27 tickets → 25 + 2, no repeats; filters combine; empty state + reset; menu change resets cursor); lint + tsc clean
