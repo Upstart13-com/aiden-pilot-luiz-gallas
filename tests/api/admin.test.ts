@@ -90,7 +90,7 @@ describe("7b PATCH /api/admin/members/[id]", () => {
 
     await vi.waitFor(async () => {
       const entry = await prisma.auditLog.findFirst({
-        where: { event: "member.role_changed", resourceId: id },
+        where: { event: "member.role_change", resourceId: id },
         orderBy: { timestamp: "desc" },
       });
       expect(entry?.metadata).toMatchObject({ from: "agent", to: "viewer" });
@@ -161,7 +161,7 @@ describe("7c GET /api/admin/audit", () => {
   it("returns actor emails and the org's event names", async () => {
     await actAs("acmeOwner");
     const { json } = await call(readAudit, "GET", { query: { limit: "200" } });
-    expect(json.events).toContain("member.role_changed");
+    expect(json.events).toContain("member.role_change");
     expect([...json.events].sort()).toEqual(json.events);
     const withActor = json.entries.find(
       (e: { actorId: string | null }) => e.actorId,
@@ -172,11 +172,11 @@ describe("7c GET /api/admin/audit", () => {
   it("filters by event", async () => {
     await actAs("acmeOwner");
     const { json } = await call(readAudit, "GET", {
-      query: { event: "member.role_changed" },
+      query: { event: "member.role_change" },
     });
     expect(json.entries.length).toBeGreaterThan(0);
     for (const entry of json.entries)
-      expect(entry.event).toBe("member.role_changed");
+      expect(entry.event).toBe("member.role_change");
   });
 
   it("rejects a page size over 200 with 400", async () => {

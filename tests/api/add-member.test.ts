@@ -82,7 +82,7 @@ describe("POST /api/admin/members", () => {
 
     await vi.waitFor(async () => {
       const entry = await prisma.auditLog.findFirst({
-        where: { event: "member.added", resourceId: membership?.id },
+        where: { event: "member.add", resourceId: membership?.id },
       });
       expect(entry?.metadata).toMatchObject({ role: "agent" });
     });

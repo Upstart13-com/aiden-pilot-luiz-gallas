@@ -64,7 +64,7 @@ export const POST = withAuth(async (req, { session }) => {
   });
   const ticket = await triageTicket(created, ctx);
   auditLog({
-    event: "ticket.created",
+    event: "ticket.create",
     resourceId: ticket.id,
     metadata: { orgId: ctx.orgId },
   });

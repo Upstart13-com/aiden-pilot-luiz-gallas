@@ -61,7 +61,13 @@ export const aidenConfig = {
   },
 
   audit: {
-    enabled: true, // Prisma sink registered in src/lib/audit.ts
+    enabled: true, // sinks registered in src/lib/audit.ts
+    /**
+     * Where audit events go: "prisma" (the audit_logs table, read by
+     * /admin/audit) or "file" (JSON Lines at AUDIT_LOG_FILE, for a
+     * customer-owned store and retention policy).
+     */
+    sink: "prisma",
   },
 
   rbac: {

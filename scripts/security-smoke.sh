@@ -25,6 +25,7 @@ FAIL=0
 ACME_AGENT_OWNED="tkt_acme_agent_owned"       # owned by agent@acme.test
 ACME_AGENT_ASSIGNED="tkt_acme_agent_assigned" # assigned to agent@acme.test
 ACME_OTHER_AGENT="tkt_acme_other_agent"       # owned by agent2@acme.test
+GLOBEX_AGENT_OWNED="tkt_globex_agent_owned"   # owned by agent@globex.test
 
 sign_in() { # persona email
   local jar="$WORK/$1.jar" csrf
@@ -75,6 +76,8 @@ call acme_owner GET /api/admin/members >/dev/null
 cp "$WORK/body" "$WORK/acme-members"
 ACME_OWNER_MEMBER="$(jq -r '.members[] | select(.email == "owner@acme.test") | .id' "$WORK/acme-members")"
 ACME_AGENT_MEMBER="$(jq -r '.members[] | select(.email == "agent@acme.test") | .id' "$WORK/acme-members")"
+GLOBEX_OWNER_MEMBER="$(call globex_owner GET /api/admin/members >/dev/null
+  jq -r '.members[] | select(.email == "owner@globex.test") | .id' "$WORK/body")"
 
 echo
 echo "Authentication"
@@ -88,6 +91,12 @@ check 3 "acme owner lists tickets, every row in acme" 200 "$s" \
   "$(holds "[.tickets[].orgId] | all(. == \"$ACME_ORG\")" "a row outside acme")"
 check 4 "acme owner reads agent2's ticket" 200 "$(call acme_owner GET "/api/tickets/$ACME_OTHER_AGENT")"
 check 8 "acme agent reads agent2's ticket (same org)" 404 "$(call acme_agent GET "/api/tickets/$ACME_OTHER_AGENT")"
+cp "$WORK/body" "$WORK/not-yours"
+s="$(call acme_agent GET /api/tickets/does-not-exist)"
+check 25 "acme agent reads a missing id, same body as not-yours" 404 "$s" \
+  "$(cmp -s "$WORK/body" "$WORK/not-yours" && echo true || echo "body differs from not-yours")"
+check 26 "acme agent PATCH agent2's ticket (same org)" 404 \
+  "$(call acme_agent PATCH "/api/tickets/$ACME_OTHER_AGENT" '{"subject":"x"}')"
 check 9 "acme agent reads own ticket" 200 "$(call acme_agent GET "/api/tickets/$ACME_AGENT_OWNED")"
 check 10 "acme agent reads assigned ticket" 200 "$(call acme_agent GET "/api/tickets/$ACME_AGENT_ASSIGNED")"
 check 14 "acme viewer reads a ticket" 200 "$(call acme_viewer GET "/api/tickets/$ACME_AGENT_OWNED")"
@@ -100,6 +109,14 @@ check 6 "globex agent PATCH acme ticket" 404 \
 check 7 "globex agent closes acme ticket" 404 "$(call globex_agent POST "/api/tickets/$ACME_AGENT_OWNED/close")"
 check 18 "globex owner PATCH acme member" 404 \
   "$(call globex_owner PATCH "/api/admin/members/$ACME_AGENT_MEMBER" '{"role":"viewer"}')"
+check 27 "acme agent GET globex ticket" 404 "$(call acme_agent GET "/api/tickets/$GLOBEX_AGENT_OWNED")"
+# A role that may not act still gets 404, not 403, for another org's ticket.
+check 28 "acme viewer PATCH globex ticket" 404 \
+  "$(call acme_viewer PATCH "/api/tickets/$GLOBEX_AGENT_OWNED" '{"subject":"x"}')"
+check 29 "acme viewer requests AI draft on globex ticket" 404 \
+  "$(call acme_viewer POST "/api/tickets/$GLOBEX_AGENT_OWNED/draft" '{}')"
+check 30 "acme agent PATCH globex member" 404 \
+  "$(call acme_agent PATCH "/api/admin/members/$GLOBEX_OWNER_MEMBER" '{"role":"viewer"}')"
 
 echo
 echo "Capabilities (403)"

@@ -182,12 +182,12 @@ describe("3c POST /api/tickets", () => {
     expect(json.ticket.ownerId).toBe(await userId("acmeAgent"));
   });
 
-  it("records a ticket.created audit entry", async () => {
+  it("records a ticket.create audit entry", async () => {
     await actAs("acmeAgent");
     const { json } = await create({ subject: "Audited", body: "b" });
     await vi.waitFor(async () => {
       const entry = await prisma.auditLog.findFirst({
-        where: { event: "ticket.created", resourceId: json.ticket.id },
+        where: { event: "ticket.create", resourceId: json.ticket.id },
       });
       expect(entry?.actorId).toBe(await userId("acmeAgent"));
     });

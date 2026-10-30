@@ -19,9 +19,8 @@ export const POST = withAuth<Params>(async (_req, { session, params }) => {
   const { id } = parsed.data;
 
   const ctx = await requireMembership(session.user.id);
-  assertCan(abilities, session, "ticket.close", ctx);
-
   const ticket = await findVisibleTicket(id, ctx);
+  assertCan(abilities, session, "ticket.close", ctx);
 
   // Closing an already-closed ticket is a no-op: keep the original closedAt.
   if (ticket.status === "closed") {
@@ -34,7 +33,7 @@ export const POST = withAuth<Params>(async (_req, { session, params }) => {
     select: ticketSelect,
   });
   auditLog({
-    event: "ticket.closed",
+    event: "ticket.close",
     resourceId: closed.id,
     metadata: { orgId: ctx.orgId },
   });

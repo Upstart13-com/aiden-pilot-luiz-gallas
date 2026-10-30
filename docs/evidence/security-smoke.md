@@ -9,7 +9,7 @@ npm run dev                     # in another terminal
 scripts/security-smoke.sh       # reads SEED_PASSWORD from .env.local; BASE=http://localhost:3000
 ```
 
-Captured on 2026-10-30 15:44 against `npm run dev` with the seeded fixtures:
+Captured on 2026-10-30 15:58 against `npm run dev` with the seeded fixtures:
 
 ```
 Security smoke suite → http://localhost:3000
@@ -22,6 +22,8 @@ Visibility
   ✓ 3   acme owner lists tickets, every row in acme                    200
   ✓ 4   acme owner reads agent2's ticket                               200
   ✓ 8   acme agent reads agent2's ticket (same org)                    404
+  ✓ 25  acme agent reads a missing id, same body as not-yours          404
+  ✓ 26  acme agent PATCH agent2's ticket (same org)                    404
   ✓ 9   acme agent reads own ticket                                    200
   ✓ 10  acme agent reads assigned ticket                               200
   ✓ 14  acme viewer reads a ticket                                     200
@@ -31,6 +33,10 @@ Cross-tenant (always 404, never 403)
   ✓ 6   globex agent PATCH acme ticket                                 404
   ✓ 7   globex agent closes acme ticket                                404
   ✓ 18  globex owner PATCH acme member                                 404
+  ✓ 27  acme agent GET globex ticket                                   404
+  ✓ 28  acme viewer PATCH globex ticket                                404
+  ✓ 29  acme viewer requests AI draft on globex ticket                 404
+  ✓ 30  acme agent PATCH globex member                                 404
 
 Capabilities (403)
   ✓ 11  acme viewer PATCH ticket                                       403
@@ -52,18 +58,18 @@ Admin
 Rate limit
   ✓ 24  11th rapid draft request                                       429
 
-24 passed, 0 failed
+30 passed, 0 failed
 ```
 
 ## What the rows prove
 
-| Status | Rows         | Meaning                                                                                                       |
-| ------ | ------------ | ------------------------------------------------------------------------------------------------------------- |
-| 401    | 1, 2         | No session, no data                                                                                           |
-| 400    | 19, 23       | Zod rejects a bad body; the org can't lose its last owner                                                     |
-| 403    | 11–13, 15–17 | A role that can see the resource but may not do the action                                                    |
-| 404    | 5–8, 18      | Another org's ticket or member, and another agent's ticket in the same org. Never 403, so ids can't be probed |
-| 429    | 24           | Draft requests are rate-limited to 10 a minute per user                                                       |
+| Status | Rows           | Meaning                                                                                                                                                                   |
+| ------ | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 401    | 1, 2           | No session, no data                                                                                                                                                       |
+| 400    | 19, 23         | Zod rejects a bad body; the org can't lose its last owner                                                                                                                 |
+| 403    | 11–13, 15–17   | A role that can see the resource but may not do the action                                                                                                                |
+| 404    | 5–8, 18, 25–30 | Another org's ticket or member, another agent's ticket in the same org, and a missing id (same body). Never 403, even for a role that may not act, so ids can't be probed |
+| 429    | 24             | Draft requests are rate-limited to 10 a minute per user                                                                                                                   |
 
 Row 20 shows tenancy is structural: the client sends a globex `orgId`, and the ticket still
 lands in acme, because `orgId` is never part of a request schema.

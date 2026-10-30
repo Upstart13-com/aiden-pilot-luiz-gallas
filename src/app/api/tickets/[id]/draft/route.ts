@@ -33,9 +33,8 @@ export const POST = withAuth<Params>(
       const { tone } = await parseRequest(req, DraftBody);
 
       const ctx = await requireMembership(session.user.id);
-      assertCan(abilities, session, "ai.invoke", ctx);
-
       const ticket = await findVisibleTicket(id, ctx);
+      assertCan(abilities, session, "ai.invoke", ctx);
 
       const client = await defaultAI();
       const stream = await withAIStreamCall(
@@ -54,7 +53,7 @@ export const POST = withAuth<Params>(
       );
 
       auditLog({
-        event: "ticket.draft_requested",
+        event: "ai.draft",
         resourceId: ticket.id,
         metadata: { orgId: ctx.orgId, tone },
       });

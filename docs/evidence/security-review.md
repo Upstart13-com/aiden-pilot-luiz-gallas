@@ -81,3 +81,12 @@ full test suite was not re-run for this addendum; `tests/api/members.test.ts`,
 `tests/api/add-member.test.ts` and `tests/api/me.test.ts` cover the new routes.
 
 **Verdict: PASS.**
+
+## Fix found by the capstone-brief check (2026-10-30)
+
+**[HIGH] Auth & Access Control — perimeter order.** `PATCH /api/tickets/[id]`, `POST .../close`,
+`POST .../draft` and `PATCH /api/admin/members/[id]` ran `assertCan` before the org-scoped
+read. A viewer therefore got **403** for another org's ticket (and for a missing id), where the
+contract is 404 for every cross-tenant id. The read and `assertOwnership` now run first, then
+`assertCan` (plan DV8). Smoke rows 28–30 cover it: before the fix rows 28 and 29 returned 403,
+now all three return 404. Route and unit tests: 135 pass.

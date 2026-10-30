@@ -20,6 +20,19 @@ This plan covers **seven dimensions**:
 | 6   | Bootstrap & ops        | [§7](#7-dimension-6--bootstrap--ops)                |
 | 7   | Verification & grading | [§8](#8-dimension-7--verification--grading)         |
 
+**Mapped to the capstone brief's seven dimensions** (added 2026-10-30, after checking the build
+against the brief):
+
+| Brief dimension   | Where                                                                               |
+| ----------------- | ----------------------------------------------------------------------------------- |
+| Outcome           | [§12.1](#121-outcome)                                                               |
+| Data              | [§2](#2-dimension-1--domain--data-model)                                            |
+| Permissions       | [§3.4](#34-abilities-srclibabilitiests), including the options rejected as unneeded |
+| Request perimeter | [§3.2](#32-canonical-request-perimeter), [§3.7](#37-routes)                         |
+| Audit             | [§12.2](#122-audit-events), [§5.1](#51-logging--audit-already-wired--extend-only)   |
+| Files touched     | [§12.3](#123-files-touched)                                                         |
+| Rollback          | [§12.4](#124-rollback)                                                              |
+
 ---
 
 ## 1. Decisions, scope boundaries and known gaps
@@ -106,15 +119,19 @@ reads `providerModels.<name>.model`.
 
 ### 1.5 Deviations during build
 
-| #   | Phase | Deviation                                                                                                                                                                                                                                                                                                                |
-| --- | ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| DV1 | 2     | **Abilities are a role → action matrix** following the persona table ([§3.4](#34-abilities-srclibabilitiests)). Owners read every ticket and manage members, audit and usage, but do **not** create, update or close tickets or invoke AI (403).                                                                         |
-| DV2 | 2     | **The starter's global `audit.read` / `audit.export` / `users.manage` rules are removed.** The starter `/admin` pages and admin API routes deny every request until Phase 7 replaces them.                                                                                                                               |
-| DV3 | 2     | **No org membership → 404, not 403.** Every denial outside role capability is a 404, with no exception ([§3.6](#36-membership-resolver-srclibmembershipts)).                                                                                                                                                             |
-| DV4 | 2–8   | **Ticket visibility moved into the query** (`findVisibleTicket`), confirmed by `assertOwnership` on the result; the earlier `assertTicketVisible`/`assertTicketOwner` wrappers and their inline id comparison are gone ([§3.2](#32-canonical-request-perimeter)).                                                        |
-| DV5 | 4–6   | **AI hardening:** ticket text is JSON-fenced in the user message and both system prompts forbid following it or revealing instructions; per-route `maxTokens`; creating or editing ticket content also requires `ai.invoke`; one shared AI client; the starter's ungated `/api/ai/chat` route and chat page are removed. |
-| DV6 | 8     | **Pages never touch the database.** Server-rendered pages read through the app's own API routes, so every read crosses the same perimeter as the browser's requests.                                                                                                                                                     |
-| DV7 | 1     | **Relation hygiene:** every FK to `User` and `Org` cascades on delete; `Ticket` gains `@@index([orgId])`, `@@index([ownerId])` and `@@index([assigneeId])`, and `AIUsage` gains `@@index([userId])`.                                                                                                                     |
+| #    | Phase   | Deviation                                                                                                                                                                                                                                                                                                                                                                    |
+| ---- | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| DV1  | 2       | **Abilities are a role → action matrix** following the persona table ([§3.4](#34-abilities-srclibabilitiests)). Owners read every ticket and manage members, audit and usage, but do **not** create, update or close tickets or invoke AI (403).                                                                                                                             |
+| DV2  | 2       | **The starter's global `audit.read` / `audit.export` / `users.manage` rules are removed.** The starter `/admin` pages and admin API routes deny every request until Phase 7 replaces them.                                                                                                                                                                                   |
+| DV3  | 2       | **No org membership → 404, not 403.** Every denial outside role capability is a 404, with no exception ([§3.6](#36-membership-resolver-srclibmembershipts)).                                                                                                                                                                                                                 |
+| DV4  | 2–8     | **Ticket visibility moved into the query** (`findVisibleTicket`), confirmed by `assertOwnership` on the result; the earlier `assertTicketVisible`/`assertTicketOwner` wrappers and their inline id comparison are gone ([§3.2](#32-canonical-request-perimeter)).                                                                                                            |
+| DV5  | 4–6     | **AI hardening:** ticket text is JSON-fenced in the user message and both system prompts forbid following it or revealing instructions; per-route `maxTokens`; creating or editing ticket content also requires `ai.invoke`; one shared AI client; the starter's ungated `/api/ai/chat` route and chat page are removed.                                                     |
+| DV6  | 8       | **Pages never touch the database.** Server-rendered pages read through the app's own API routes, so every read crosses the same perimeter as the browser's requests.                                                                                                                                                                                                         |
+| DV8  | 3, 6, 7 | **Perimeter order corrected (2026-10-30).** `PATCH`/`close`/`draft` and the member role change called `assertCan` before the scoped read, so a viewer got **403** for another org's ticket. The org-filtered read + `assertOwnership` now run first and `assertCan` after, matching the brief's order; smoke rows 25–30 cover it ([§3.2](#32-canonical-request-perimeter)).  |
+| DV9  | 1, 5    | **Naming differs from the brief:** fragments are `org.prisma` (Org + Membership), `ticket.prisma`, `ai-usage.prisma`; `AIUsage` records the call as `feature` (`ticket.draft` / `ticket.triage`) where the brief says `route`, and adds `provider`, `requestId`, `totalTokens`, `latencyMs`. `Membership.role` and the ticket fields are Postgres enums rather than strings. |
+| DV10 | 5       | **Audit aligned with the brief (2026-10-30):** events renamed to `ticket.create`, `ticket.update`, `ticket.close`, `ai.draft`, `member.role_change` (+ `member.add`); `ai.classify` added after a successful triage; a second, file-based audit sink selectable with `audit.sink` in `aiden.config.ts` ([§12.2](#122-audit-events)).                                         |
+| DV11 | 8       | **Ticket detail uses `PageHeader`** (breadcrumb moved below it); the draft panel uses `useAIStream`'s `reset` for a **Discard** action.                                                                                                                                                                                                                                      |
+| DV7  | 1       | **Relation hygiene:** every FK to `User` and `Org` cascades on delete; `Ticket` gains `@@index([orgId])`, `@@index([ownerId])` and `@@index([assigneeId])`, and `AIUsage` gains `@@index([userId])`.                                                                                                                                                                         |
 
 ## 2. Dimension 1 — Domain & data model
 
@@ -348,25 +365,26 @@ export const PATCH = withAuth<RouteParams>(async (req, { session, params }) => {
   const body = await parseRequest(req, UpdateTicketBody);
 
   // 3. requireMembership   → 404 if the caller belongs to no org
-  const { orgId, role } = await requireMembership(session.user.id);
+  const ctx = await requireMembership(session.user.id);
 
-  // 4. assertCan           → 403 if this ROLE may not perform this VERB
-  assertCan(abilities, session, "ticket.update", { role });
-
-  // 5. scoped query        → org (and, for agents, own/assigned) in the WHERE clause
-  // 6. assertOwnership     → no row becomes a 404 + security.ownership_failed
+  // 4. scoped query        → org (and, for agents, own/assigned) in the WHERE clause
+  // 5. assertOwnership     → no row becomes a 404 + security.ownership_failed
   const ticket = await findVisibleTicket(id, ctx);
+
+  // 6. assertCan           → 403 if this ROLE may not perform this VERB
+  //    After the read (DV8): another org's ticket is a 404 for every role.
+  assertCan(abilities, session, "ticket.update", ctx);
 
   // 7. mutate + audit
   const updated = await prisma.ticket.update({ where: { id: ticket.id }, data: { ... } });
-  auditLog({ event: "ticket.updated", resourceId: updated.id, metadata: { orgId } });
+  auditLog({ event: "ticket.update", resourceId: updated.id, metadata: { orgId } });
 
   // 8. respond
   return NextResponse.json({ ticket: updated });
 });
 ```
 
-Steps 5 and 6 together are the IDOR guard, and they are a deliberate **two-step**:
+Steps 4 and 5 together are the IDOR guard, and they are a deliberate **two-step**:
 
 1. **Tenant scoping is enforced at the query level.** `findVisibleTicket` adds
    `ticketVisibilityWhere(ctx)` to the lookup — the caller's `orgId`, plus own-or-assigned for
@@ -453,6 +471,16 @@ export const abilities = defineAbilities({
 
 Note what is **not** here: no CASL conditions, no fourth role, no per-field rules. Eight
 actions, three roles, two predicate shapes.
+
+**Options rejected as unneeded** — the simplest primitive that answers each question:
+
+| Option                                                      | Why it was declined                                                                                                                                                    |
+| ----------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| CASL conditions (`{ ownerId: user.id }` on `ticket.update`) | Row visibility already lives in the query (§3.2), and `assertOwnership` turns "no row" into a 404. A condition would answer the same question a second time, as a 403. |
+| A per-ticket `ticket.update.own` ability for agents         | Same reason: "own or assigned" is a `WHERE` clause, not a capability.                                                                                                  |
+| An owner `ticket.update` / `ai.invoke` ability              | The persona table gives owners governance, not ticket work, so owners read tickets but don't change them or call AI.                                                   |
+| The starter's global `Role` / `Permission` RBAC tables      | They are app-wide; Deskline's roles are per org, on `Membership.role` (DV2).                                                                                           |
+| A fourth role (e.g. `admin` separate from `owner`)          | The brief fixes three roles.                                                                                                                                           |
 
 ### 3.5 The `assertOwnership` field gap
 
@@ -635,7 +663,7 @@ export const POST = withAuth<RouteParams>(
       );
 
       auditLog({
-        event: "ticket.draft_requested",
+        event: "ai.draft",
         resourceId: ticket.id,
         metadata: { orgId: ctx.orgId, tone },
       });
@@ -728,8 +756,7 @@ open.
 `src/instrumentation.ts`) are in place. `withAuth` runs every handler inside
 `withRequestContext`, so `requestId` / `userId` auto-attach to every log line and audit record.
 
-Events this build emits: `ticket.created`, `ticket.updated`, `ticket.closed`,
-`ticket.draft_requested`, `member.role_changed`. The SDK already emits
+Events this build emits are listed in [§12.2](#122-audit-events). The SDK already emits
 `security.ownership_failed` and `security.ability_denied` on every perimeter rejection — so the
 **denial path is audited without any app code**, which is what makes the audit viewer a real
 security artefact rather than a changelog.
@@ -1116,6 +1143,12 @@ The assertion matrix — **every row asserts an exact status code**:
 | 22  | acme owner       | `GET /api/admin/usage`                                 | 200, every row `orgId == acme`                                                               |
 | 23  | acme owner       | demote the last owner                                  | **400**, org retains an owner                                                                |
 | 24  | acme agent       | 11 rapid `POST .../draft`                              | final request **429**                                                                        |
+| 25  | acme agent       | `GET /api/tickets/does-not-exist`                      | **404**, body identical to row 8 (missing = not-yours)                                       |
+| 26  | acme agent       | `PATCH /api/tickets/{acme-agent2-ticket}`              | **404**                                                                                      |
+| 27  | acme agent       | `GET /api/tickets/{globex-id}`                         | **404**                                                                                      |
+| 28  | **acme viewer**  | `PATCH /api/tickets/{globex-id}`                       | **404** — not 403: the read runs before `assertCan` (DV8)                                    |
+| 29  | **acme viewer**  | `POST /api/tickets/{globex-id}/draft`                  | **404**                                                                                      |
+| 30  | acme agent       | `PATCH /api/admin/members/{globex-member-id}`          | **404**                                                                                      |
 
 Rows 5–8 and 18 are the heart of it: **every cross-tenant probe returns 404**, and there is no
 input that produces a 403 for a resource in another org — which is exactly the enumeration
@@ -1263,3 +1296,126 @@ a build-time detail.
   corrected.
 - **The upstream SDK fixes** for G1–G3 and G6. Approval here accepts the _interim_ approaches
   only; filing them is tracked separately and does not gate the build.
+
+---
+
+## 12. Brief dimensions: outcome, audit, files touched, rollback
+
+Added 2026-10-30, after checking the build against the capstone brief. The approved plan
+covered these inside other sections, or not at all; they are written out here so each of the
+brief's seven dimensions has its own section.
+
+### 12.1 Outcome
+
+What each persona sees, not how it is built.
+
+| Flow                       | Agent                                                                                                                  | Viewer                         | Owner                                                                                                               |
+| -------------------------- | ---------------------------------------------------------------------------------------------------------------------- | ------------------------------ | ------------------------------------------------------------------------------------------------------------------- |
+| Ticket list (`/dashboard`) | Own and assigned tickets, filtered by status/priority, 25 per page                                                     | Every ticket in the org        | Every ticket in the org                                                                                             |
+| Create a ticket            | **New ticket** dialog; the ticket opens with priority, category and sentiment filled in by triage                      | No button; the API answers 403 | No button; the API answers 403                                                                                      |
+| Ticket detail              | Edit subject/description (re-runs triage), change status, reassign, close with confirmation                            | Read only                      | Read only                                                                                                           |
+| AI draft reply             | **AI draft** tab: pick a tone, the reply streams in, then Copy / Regenerate / Discard. Nothing is sent to the customer | No tab; the API answers 403    | No tab; the API answers 403                                                                                         |
+| Triage                     | Runs on create, and on edit when subject or description changes. A provider failure never blocks saving the ticket     | —                              | —                                                                                                                   |
+| Another org's ticket       | 404 page, the same as a ticket that doesn't exist                                                                      | 404                            | 404                                                                                                                 |
+| Admin                      | —                                                                                                                      | —                              | Members (add by email, change role), Audit (org-scoped, filter by event), Cost (spend by member, feature and model) |
+
+### 12.2 Audit events
+
+Every app event carries `resourceId` and `metadata.orgId`; `requestId` and the actor come from
+the request context. No ticket subject, body, prompt or draft text is ever in metadata.
+
+| Event                                                  | Emitted by                                          | `resourceId`  | `metadata`                                   |
+| ------------------------------------------------------ | --------------------------------------------------- | ------------- | -------------------------------------------- |
+| `ticket.create`                                        | `POST /api/tickets`                                 | ticket id     | `orgId`                                      |
+| `ticket.update`                                        | `PATCH /api/tickets/[id]`                           | ticket id     | `orgId`, `fields` (names only)               |
+| `ticket.close`                                         | `POST /api/tickets/[id]/close`                      | ticket id     | `orgId`                                      |
+| `ai.classify`                                          | `triageTicket` after a successful, validated triage | ticket id     | `orgId`, `priority`, `category`, `sentiment` |
+| `ai.draft`                                             | `POST /api/tickets/[id]/draft`                      | ticket id     | `orgId`, `tone`                              |
+| `member.add`                                           | `POST /api/admin/members`                           | membership id | `orgId`, `role`                              |
+| `member.role_change`                                   | `PATCH /api/admin/members/[id]`                     | membership id | `orgId`, `from`, `to`                        |
+| `security.ownership_failed`, `security.ability_denied` | `aiden-security`, automatically                     | —             | reason                                       |
+| `auth.signin`, `auth.signout`, `auth.register`         | `aiden-auth`, automatically                         | user id       | —                                            |
+
+**Swappable sink.** `audit.sink` in `aiden.config.ts` picks the sink registered in
+`src/lib/audit.ts`:
+
+- `"prisma"` (default): the `audit_logs` table, read by `/admin/audit`.
+- `"file"`: one JSON object per line in `AUDIT_LOG_FILE` (default `logs/audit.jsonl`).
+
+**Retention (D7):** with the file sink, the customer owns the audit store. They decide where
+it is shipped and how long it is kept; Deskline neither rotates nor deletes it. The in-app
+viewer shows nothing while the file sink is selected, because it reads `audit_logs`.
+
+### 12.3 Files touched
+
+Relative to the starter commit (`b1e73c1`).
+
+**Schema and data**
+
+| File                                                      | Note                                                                                        |
+| --------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| `prisma/fragments/org.prisma`                             | New: `Org`, `Membership`, `MembershipRole` enum                                             |
+| `prisma/fragments/ticket.prisma`                          | New: `Ticket` and its status/priority/sentiment enums, org-scoped indexes                   |
+| `prisma/fragments/ai-usage.prisma`                        | New: `AIUsage`, cascades from `Org`                                                         |
+| `prisma/fragments/user.prisma`                            | Back-relations to memberships and owned/assigned tickets                                    |
+| `prisma/migrations/*_deskline_core`, `*_relation_hygiene` | Generated by `npm run db:migrate`                                                           |
+| `prisma/schema.prisma`                                    | Regenerated by `aiden-db-merge-schema`, never edited by hand                                |
+| `prisma/seed.ts`                                          | Two orgs, six users across the three roles, eight fixture tickets; `SEED_PASSWORD` required |
+| `prisma.config.ts`                                        | Seed command for Prisma 7                                                                   |
+
+**Server**
+
+| File                                                                    | Note                                                                                        |
+| ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| `src/lib/abilities.ts`                                                  | Role → action matrix through `defineAbilities`                                              |
+| `src/lib/membership.ts`                                                 | `requireMembership` (no org → 404), member list for assignment                              |
+| `src/lib/tickets.ts`                                                    | `ticketSelect`, `ticketVisibilityWhere`, `findVisibleTicket` (the two-step), summary counts |
+| `src/lib/validation/ticket.ts`, `admin.ts`                              | Zod schemas for every body and query                                                        |
+| `src/lib/ai.ts`                                                         | Provider-agnostic `createAIClient`, memoised `defaultAI()`                                  |
+| `src/lib/prompts.ts`                                                    | System prompts, ticket fencing, per-route `maxTokens`                                       |
+| `src/lib/triage.ts`                                                     | Structured-output triage, re-validated, audited as `ai.classify`                            |
+| `src/lib/ai-usage.ts`                                                   | `setAIUsageSink` → `ai_usage`, tagged with org and feature                                  |
+| `src/lib/audit.ts`                                                      | Prisma and file audit sinks behind `audit.sink`                                             |
+| `src/lib/security.ts`                                                   | Imports `@/lib/audit` so routes always have the sink                                        |
+| `src/lib/admin.ts`                                                      | Members, org-scoped audit entries, usage summary                                            |
+| `src/lib/api-client.ts`, `api-types.ts`, `page-context.ts`, `format.ts` | Pages read through the API with the session cookie                                          |
+| `src/middleware.ts`                                                     | `securityHeaders`                                                                           |
+| `src/instrumentation.ts`                                                | Registers the usage sink at boot                                                            |
+| `src/app/api/tickets/**`                                                | List, create, get, update, close, draft (SSE), summary                                      |
+| `src/app/api/members/route.ts`                                          | Org members for the assignee picker                                                         |
+| `src/app/api/admin/{members,audit,usage}/**`                            | Owner-only admin routes                                                                     |
+| `src/app/api/me/route.ts`, `me/signins/route.ts`                        | Adds `orgName` to the profile; sign-in history                                              |
+| `aiden.config.ts`                                                       | AI providers/models, `audit.sink`                                                           |
+
+**UI**
+
+| File                                                                    | Note                                                               |
+| ----------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| `src/app/layout.tsx`                                                    | `ThemeProvider` and the single `Toaster`                           |
+| `src/components/app-shell.tsx`                                          | Sidebar and header for `/dashboard` and `/admin`                   |
+| `src/app/dashboard/page.tsx`                                            | Ticket list, summary, filters, paging                              |
+| `src/app/dashboard/tickets/[id]/page.tsx`                               | Ticket detail with edit, status, assignee, close and the draft tab |
+| `src/components/tickets/*`                                              | Dialogs, menus, badges, filters, the `useAIStream` draft panel     |
+| `src/app/admin/{members,audit,cost}/page.tsx`, `src/components/admin/*` | Owner pages                                                        |
+| `src/components/settings/profile-section.tsx`                           | "Your organization" card                                           |
+| `src/config/nav.ts`, `src/app/{admin,dashboard}/layout.tsx`             | Navigation and route gating                                        |
+
+**Tests, scripts and docs**
+
+| File                                        | Note                                                      |
+| ------------------------------------------- | --------------------------------------------------------- |
+| `tests/**`, `vitest.config.mts`             | Unit and route tests with a fake AI client                |
+| `scripts/security-smoke.sh`                 | Graded curl suite (§8.2)                                  |
+| `postman/deskline.postman_collection.json`  | Manual API collection                                     |
+| `README.md`, `docs/*.md`, `docs/evidence/*` | Run steps, demo, ops diagnosis, self-assessment, evidence |
+
+### 12.4 Rollback
+
+| What              | How                                                                                                                                                                                                                                                                                                                     | Reversible?                                            |
+| ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------ |
+| AI features       | Set every `ai.providers.*` to `false` in `aiden.config.ts` and restart. Triage is skipped (tickets save untriaged) and the draft route returns an error; no route changes                                                                                                                                               | Yes                                                    |
+| Audit destination | Switch `audit.sink` between `"prisma"` and `"file"`                                                                                                                                                                                                                                                                     | Yes                                                    |
+| Application code  | `git revert` the feature commits (or redeploy the previous build)                                                                                                                                                                                                                                                       | Yes                                                    |
+| Schema            | Prisma has no down migrations. Generate the down step with `npx prisma migrate diff --from-config-datasource --to-schema <previous schema.prisma> --script` (the previous schema from `git show <commit>:prisma/schema.prisma`), review it, and ship it as a new migration. Locally, `npx prisma migrate reset` instead | With a new migration; dropping tables loses their data |
+| Seed data         | `npm run db:seed` restores the fixtures                                                                                                                                                                                                                                                                                 | Yes                                                    |
+| Audit rows        | **Not reversed.** Rows written to `audit_logs` (or the file sink) stay, by design: an audit trail that a rollback could erase would not be an audit trail                                                                                                                                                               | Accepted as non-reversible                             |

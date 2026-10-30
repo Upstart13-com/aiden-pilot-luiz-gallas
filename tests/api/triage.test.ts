@@ -33,6 +33,17 @@ describe("Phase 4 — triage on create", () => {
     expect(ticket.triagedAt).not.toBeNull();
   });
 
+  it("records an ai.classify audit entry with the result, not the body", async () => {
+    const ticket = await createAsAgent("Classify is audited");
+    await vi.waitFor(async () => {
+      const entry = await prisma.auditLog.findFirst({
+        where: { event: "ai.classify", resourceId: ticket.id },
+      });
+      expect(entry?.metadata).toMatchObject(TRIAGE_RESULT);
+      expect(JSON.stringify(entry?.metadata)).not.toContain("charged twice");
+    });
+  });
+
   it("still creates the ticket when the provider fails", async () => {
     setFakeAIMode("fail");
     const ticket = await createAsAgent("Provider down");

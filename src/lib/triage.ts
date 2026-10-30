@@ -5,6 +5,7 @@ import { withAICall } from "@/lib/ai-usage";
 import { log } from "@/lib/logger";
 import type { MembershipContext } from "@/lib/membership";
 import { prisma } from "@/lib/prisma";
+import { auditLog } from "@/lib/security";
 import { ticketSelect, type TicketView } from "@/lib/tickets";
 import {
   TRIAGE_MAX_TOKENS,
@@ -60,11 +61,17 @@ export async function triageTicket(
       return ticket;
     }
 
-    return await prisma.ticket.update({
+    const triaged = await prisma.ticket.update({
       where: { id: ticket.id },
       data: { ...parsed.data, triagedAt: new Date() },
       select: ticketSelect,
     });
+    auditLog({
+      event: "ai.classify",
+      resourceId: triaged.id,
+      metadata: { orgId: ctx.orgId, ...parsed.data },
+    });
+    return triaged;
   } catch (err) {
     log.error({ err, ticketId: ticket.id }, "ticket triage failed");
     return ticket;

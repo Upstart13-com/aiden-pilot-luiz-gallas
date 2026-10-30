@@ -107,7 +107,7 @@ Sign in as **`owner@acme.test`**. The sidebar now shows **Members**, **Audit** a
    own row can't be changed.
 2. **Audit:** the role changes, the ticket you created, the draft requests and the viewer's
    denied request (`security.ability_denied`) are all listed, only for acme members. Filter by
-   **Event: member.role_changed**.
+   **Event: member.role_change**.
 3. **Cost:** spend for the triage and draft calls from steps 2–3, broken down by member,
    feature and model, plus the recent calls.
 

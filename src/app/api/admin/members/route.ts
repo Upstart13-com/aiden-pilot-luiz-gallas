@@ -53,7 +53,7 @@ export const POST = withAuth(async (req, { session }) => {
     select: { id: true, role: true, createdAt: true },
   });
   auditLog({
-    event: "member.added",
+    event: "member.add",
     resourceId: membership.id,
     metadata: { orgId: ctx.orgId, role },
   });

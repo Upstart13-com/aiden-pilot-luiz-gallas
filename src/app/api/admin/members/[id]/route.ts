@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
-import { OwnershipError } from "@upstart13-com/aiden-security";
 import {
   withAuth,
   assertCan,
+  assertOwnership,
   auditLog,
   parseRequest,
   RequestValidationError,
@@ -22,13 +22,15 @@ export const PATCH = withAuth<Params>(async (req, { session, params }) => {
   const { role } = await parseRequest(req, RoleChangeBody);
 
   const ctx = await requireMembership(session.user.id);
-  assertCan(abilities, session, "org.members.manage", ctx);
 
+  // Scoped to the caller's org, so another org's member matches no row; the
+  // missing row becomes a 404 before the role check can answer 403.
   const member = await prisma.membership.findFirst({
     where: { id, orgId: ctx.orgId },
     select: { id: true, userId: true, role: true },
   });
-  if (!member) throw new OwnershipError();
+  if (!member) assertOwnership(member, ctx.userId);
+  assertCan(abilities, session, "org.members.manage", ctx);
 
   if (member.userId === ctx.userId && role !== member.role) {
     return NextResponse.json(
@@ -55,7 +57,7 @@ export const PATCH = withAuth<Params>(async (req, { session, params }) => {
     select: { id: true, role: true },
   });
   auditLog({
-    event: "member.role_changed",
+    event: "member.role_change",
     resourceId: updated.id,
     metadata: { orgId: ctx.orgId, from: member.role, to: role },
   });

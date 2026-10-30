@@ -2,7 +2,7 @@
 
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { ChevronDown, Copy, Sparkles } from "lucide-react";
+import { ChevronDown, Copy, Sparkles, X } from "lucide-react";
 import { toast } from "sonner";
 import type { z } from "zod";
 import { useAIStream } from "@upstart13-com/aiden-realtime/react";
@@ -53,7 +53,7 @@ export function DraftPanel({ ticketId }: { ticketId: string }) {
     resolver: zodResolver(DraftBody),
     defaultValues: { tone: "neutral" as const },
   });
-  const { text, isLoading, error, send } = useAIStream<DraftRequest>(
+  const { text, isLoading, error, send, reset } = useAIStream<DraftRequest>(
     `/api/tickets/${ticketId}/draft`,
   );
   const hasDraft = text.length > 0;
@@ -114,6 +114,12 @@ export function DraftPanel({ ticketId }: { ticketId: string }) {
             />
 
             <div className="flex gap-2">
+              {hasDraft && !isLoading && (
+                <Button type="button" variant="ghost" size="sm" onClick={reset}>
+                  <X className="mr-1.5 size-4" strokeWidth={1.5} />
+                  Discard
+                </Button>
+              )}
               {hasDraft && !isLoading && (
                 <Button
                   type="button"

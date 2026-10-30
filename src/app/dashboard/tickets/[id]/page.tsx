@@ -7,6 +7,7 @@ import {
   BreadcrumbSeparator,
   Card,
   CardContent,
+  PageHeader,
   Tabs,
   TabsContent,
   TabsList,
@@ -97,30 +98,11 @@ export default async function TicketPage({
 
   return (
     <div>
-      <div className="border-border border-b px-6 py-5">
-        <Breadcrumb className="mb-2">
-          <BreadcrumbList>
-            <BreadcrumbItem>
-              <BreadcrumbLink href="/dashboard">Tickets</BreadcrumbLink>
-            </BreadcrumbItem>
-            <BreadcrumbSeparator />
-            <BreadcrumbItem>
-              <BreadcrumbPage className="max-w-48 truncate sm:max-w-md">
-                {ticket.subject}
-              </BreadcrumbPage>
-            </BreadcrumbItem>
-          </BreadcrumbList>
-        </Breadcrumb>
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-          <div className="min-w-0">
-            <h1 className="text-2xl font-bold tracking-tight break-words">
-              {ticket.subject}
-            </h1>
-            <p className="text-muted-foreground mt-1 text-sm">
-              Opened by {person(ticket.owner)} · {formatDate(ticket.createdAt)}
-            </p>
-          </div>
-          {(canEdit || canClose) && (
+      <PageHeader
+        title={ticket.subject}
+        subtitle={`Opened by ${person(ticket.owner)} · ${formatDate(ticket.createdAt)}`}
+        action={
+          (canEdit || canClose) && (
             <div className="flex shrink-0 gap-2">
               {canEdit && (
                 <EditTicketDialog
@@ -136,11 +118,24 @@ export default async function TicketPage({
                 />
               )}
             </div>
-          )}
-        </div>
-      </div>
+          )
+        }
+      />
 
       <div className="px-6 pt-6 pb-8">
+        <Breadcrumb className="mb-6">
+          <BreadcrumbList>
+            <BreadcrumbItem>
+              <BreadcrumbLink href="/dashboard">Tickets</BreadcrumbLink>
+            </BreadcrumbItem>
+            <BreadcrumbSeparator />
+            <BreadcrumbItem>
+              <BreadcrumbPage className="max-w-48 truncate sm:max-w-md">
+                {ticket.subject}
+              </BreadcrumbPage>
+            </BreadcrumbItem>
+          </BreadcrumbList>
+        </Breadcrumb>
         <Tabs defaultValue="conversation">
           <TabsList>
             <TabsTrigger value="conversation">Conversation</TabsTrigger>

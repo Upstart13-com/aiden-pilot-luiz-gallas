@@ -178,7 +178,7 @@ with a clear error rather than silently using another one.
 - `aiden doctor`: config, env, `osv-scanner` and `npm audit`
 - `/security-review` in Claude Code before every PR (run automatically by `/ship`)
 - `npm test`: perimeter tests for every route (401, 400, 403, cross-tenant 404)
-- `scripts/security-smoke.sh`: the same perimeter over curl against `npm run dev`, 24 graded rows
+- `scripts/security-smoke.sh`: the same perimeter over curl against `npm run dev`, 30 graded rows
 
 ## Upgrading AIDEN
 
