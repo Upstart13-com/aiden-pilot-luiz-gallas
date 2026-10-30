@@ -1,6 +1,6 @@
 # Deskline — Implementation Plan
 
-> **Status:** **Approved** 2026-10-29 — build not yet started.
+> **Status:** **Approved** 2026-10-29 — **built**. Phases 1–9, 11, 12, 12a, 15 and 16 are done; 10, 13 and 14 were cancelled ([§9](#9-build-sequence)). Deviations are in [§1.5](#15-deviations-during-build).
 > **Date:** 2026-10-29 (approved same day)
 > **Author:** Claude Opus 5 (plan-then-build artefact)
 

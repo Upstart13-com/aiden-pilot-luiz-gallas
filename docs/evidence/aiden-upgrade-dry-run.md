@@ -1,6 +1,6 @@
 # Evidence: `aiden upgrade --dry-run`
 
-Captured on 2026-10-30 15:37 with `@upstart13-com/aiden-cli` 2.0.1. ANSI colours are stripped.
+Captured on 2026-10-30 16:54 with `@upstart13-com/aiden-cli` 2.0.1. ANSI colours are stripped.
 
 ```
 aiden upgrade (dry-run)

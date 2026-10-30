@@ -1,6 +1,6 @@
 # Evidence: `aiden doctor`
 
-`aiden doctor` from `@upstart13-com/aiden-cli` 2.0.1, captured on 2026-10-30 15:37. ANSI colours are stripped.
+`aiden doctor` from `@upstart13-com/aiden-cli` 2.0.1, captured on 2026-10-30 16:54. ANSI colours are stripped.
 
 ## 1. Before `npm run dev` (current config)
 

@@ -59,6 +59,7 @@ openssl rand -base64 32           # paste the output as AUTH_SECRET
 | `SEED_PASSWORD`     | for seeding          | Password for every seeded account. There is no default; choose your own.                            |
 | `INTERNAL_API_URL`  | no                   | Origin pages use to call the app's own API. Defaults to `http://localhost:$PORT`.                   |
 | `LOG_LEVEL`         | no                   | `info` by default                                                                                   |
+| `AUDIT_LOG_FILE`    | no                   | Where the file audit sink writes, when `audit.sink` is `"file"`. Defaults to `logs/audit.jsonl`.    |
 
 ### 4. Local Postgres
 
@@ -160,6 +161,18 @@ with a clear error rather than silently using another one.
 
 ---
 
+## Audit trail
+
+Routes record events such as `ticket.create`, `ai.classify` and `member.role_change` with
+`auditLog()`. `aiden-security` adds the denials (`security.ownership_failed`,
+`security.ability_denied`) and `aiden-auth` adds sign-ins. `audit.sink` in `aiden.config.ts`
+picks where they go:
+
+| `audit.sink`         | Destination                                                                                                                               |
+| -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `"prisma"` (default) | The `audit_logs` table, which owners read at `/admin/audit`                                                                               |
+| `"file"`             | JSON Lines at `AUDIT_LOG_FILE`, for an audit store and retention policy the customer owns. `/admin/audit` stays empty while it's selected |
+
 ## Project layout
 
 | Path                                      | What's there                                                                      |
@@ -179,6 +192,16 @@ with a clear error rather than silently using another one.
 - `/security-review` in Claude Code before every PR (run automatically by `/ship`)
 - `npm test`: perimeter tests for every route (401, 400, 403, cross-tenant 404)
 - `scripts/security-smoke.sh`: the same perimeter over curl against `npm run dev`, 30 graded rows
+
+Latest results are in [docs/evidence/](docs/evidence/).
+
+## Not included
+
+- **Live AI evidence** (`AIUsage` rows in Prisma Studio, a captured SSE draft, the injection
+  probe against a real model). AI is off in the committed config because of SDK limitations
+  agreed with the tester. Both AI features are covered by tests against a fake client.
+- **CI** (Professional tier). The dev-vs-CI migration split is documented in
+  [Schema, migrations and seed](#6-schema-migrations-and-seed).
 
 ## Upgrading AIDEN
 

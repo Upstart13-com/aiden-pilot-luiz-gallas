@@ -9,7 +9,7 @@ npm run dev                     # in another terminal
 scripts/security-smoke.sh       # reads SEED_PASSWORD from .env.local; BASE=http://localhost:3000
 ```
 
-Captured on 2026-10-30 15:58 against `npm run dev` with the seeded fixtures:
+Captured on 2026-10-30 16:55 against `npm run dev` with the seeded fixtures:
 
 ```
 Security smoke suite → http://localhost:3000

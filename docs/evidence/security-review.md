@@ -90,3 +90,36 @@ read. A viewer therefore got **403** for another org's ticket (and for a missing
 contract is 404 for every cross-tenant id. The read and `assertOwnership` now run first, then
 `assertCan` (plan DV8). Smoke rows 28–30 cover it: before the fix rows 28 and 29 returned 403,
 now all three return 404. Route and unit tests: 135 pass.
+
+## Full re-run before the PR: PASS (2026-10-30 16:53)
+
+`/security-review` on `docs/deskline-plan` against `main`: 20 commits, 115 changed files
+(87 `.ts`/`.tsx`), including Phases 15–16 and the perimeter-order fix.
+
+| Category               | Status | Notes                                                                                                                                                                                                                                                                     |
+| ---------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Auth & Access Control  | PASS   | Every route except the public NextAuth handlers and `auth/register` uses `withAuth`, then `requireMembership` (no org → 404). Single-resource routes run the org-scoped read and `assertOwnership` before `assertCan`. Create checks the assignee is in the caller's org. |
+| Injection Prevention   | PASS   | No unsafe raw SQL, `eval`, `new Function`, `dangerouslySetInnerHTML` or direct `req.json()`.                                                                                                                                                                              |
+| Data Exposure          | PASS   | Explicit `select` on every query that reaches a response, including the new `assignee { name, email }` on the ticket list. No stack traces in error bodies.                                                                                                               |
+| Stripe Security        | N/A    | No Stripe code.                                                                                                                                                                                                                                                           |
+| Server/Client Boundary | PASS   | No `"use client"` file imports a server module; no server actions.                                                                                                                                                                                                        |
+| Sensitive Data         | PASS   | No keys, tokens or private keys in the diff. The only connection strings are the local Docker default in the README and a placeholder fallback in `prisma.config.ts`.                                                                                                     |
+
+| Source      | Critical | High | Medium | Low |
+| ----------- | -------- | ---- | ------ | --- |
+| npm audit   | 0        | 0    | 0      | 0   |
+| osv-scanner | 0        | 0    | 0      | 0   |
+
+New packages: `@anthropic-ai/sdk@1.3.0` and `pino-pretty@13.2.0` clear. `vitest@4.1.12` is the
+release that fixes CVE-2026-112950. Aggregators also list CVE-2026-53633 and CVE-2026-47428 for
+Vitest; their affected ranges could not be confirmed, neither scanner reports them, and Vitest
+is a dev dependency only.
+
+Findings, justified rather than fixed:
+
+- **[MEDIUM] `GET /api/members` is readable by every role** (Phase 16), so viewers and owners
+  see the names, emails and roles of their own org's members. It feeds the Assignee filter, and
+  viewers already see assignee names in the ticket table. Never another org's members. Accepted.
+- **[LOW] `prisma/seed.ts` `console.log`** prints row counts only.
+
+**Verdict: PASS.**
