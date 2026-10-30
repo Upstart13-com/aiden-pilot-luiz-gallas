@@ -1,10 +1,6 @@
 import type { ReactNode } from "react";
 import type { User } from "next-auth";
-import {
-  DashboardHeader,
-  DashboardNav,
-  Toaster,
-} from "@upstart13-com/aiden-ui";
+import { DashboardHeader, DashboardNav } from "@upstart13-com/aiden-ui";
 import { brand } from "@/config/brand";
 import { adminNavItems, primaryNavItems, settingsNavItem } from "@/config/nav";
 import { aidenConfig } from "@/../aiden.config";
@@ -15,7 +11,7 @@ interface AppShellProps {
   children: ReactNode;
 }
 
-/** Sidebar, mobile header and toaster shared by /dashboard and /admin. */
+/** Sidebar and mobile header shared by /dashboard and /admin. */
 export function AppShell({ user, showAdmin, children }: AppShellProps) {
   const secondaryNavItems = showAdmin
     ? [...adminNavItems, settingsNavItem]
@@ -40,7 +36,6 @@ export function AppShell({ user, showAdmin, children }: AppShellProps) {
         />
         <main className="flex-1 overflow-y-auto">{children}</main>
       </div>
-      <Toaster />
     </div>
   );
 }

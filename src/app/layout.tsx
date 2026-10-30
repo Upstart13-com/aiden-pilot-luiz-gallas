@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Inter, JetBrains_Mono } from "next/font/google";
+import { Toaster } from "@upstart13-com/aiden-ui";
 import { ThemeProvider } from "@upstart13-com/aiden-ui/layout/theme-provider";
 import { aidenConfig } from "@/../aiden.config";
 import { brand } from "@/config/brand";
@@ -35,7 +36,10 @@ export default function RootLayout({
       className={`${interSans.variable} ${jetbrainsMono.variable}`}
     >
       <body className="bg-background text-foreground antialiased">
-        <ThemeProvider>{children}</ThemeProvider>
+        <ThemeProvider>
+          {children}
+          <Toaster />
+        </ThemeProvider>
       </body>
     </html>
   );
