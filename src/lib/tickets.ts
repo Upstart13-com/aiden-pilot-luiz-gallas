@@ -1,7 +1,9 @@
 import "server-only";
 import type { Prisma } from "@/generated/prisma/client";
 import type { MembershipRole } from "@/generated/prisma/enums";
+import { OwnershipError } from "@upstart13-com/aiden-security";
 import { assertOwnership } from "@/lib/security";
+import { prisma } from "@/lib/prisma";
 import type { MembershipContext } from "@/lib/membership";
 
 /**
@@ -82,4 +84,17 @@ export function assertTicketVisible<T extends TicketRow>(
     // last way in. A null ticket falls through to the same 404.
     assertTicketOwner(ticket, ctx.userId);
   }
+}
+
+/** Assignees must belong to the caller's org; anyone else is treated as not found (404). */
+export async function assertAssigneeInOrg(
+  assigneeId: string | null | undefined,
+  orgId: string,
+): Promise<void> {
+  if (!assigneeId) return;
+  const membership = await prisma.membership.findFirst({
+    where: { userId: assigneeId, orgId },
+    select: { id: true },
+  });
+  if (!membership) throw new OwnershipError();
 }

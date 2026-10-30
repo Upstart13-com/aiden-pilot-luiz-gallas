@@ -1,10 +1,16 @@
 import { NextResponse } from "next/server";
-import { withAuth, assertCan, RequestValidationError } from "@/lib/security";
+import {
+  withAuth,
+  assertCan,
+  auditLog,
+  parseRequest,
+  RequestValidationError,
+} from "@/lib/security";
 import { abilities } from "@/lib/abilities";
 import { requireMembership } from "@/lib/membership";
-import { ticketVisibilityWhere } from "@/lib/tickets";
+import { assertAssigneeInOrg, ticketVisibilityWhere } from "@/lib/tickets";
 import { prisma } from "@/lib/prisma";
-import { ListTicketsQuery } from "@/lib/validation/ticket";
+import { CreateTicketBody, ListTicketsQuery } from "@/lib/validation/ticket";
 
 export const GET = withAuth(async (req, { session }) => {
   const url = new URL(req.url);
@@ -29,4 +35,29 @@ export const GET = withAuth(async (req, { session }) => {
     rows.length > limit ? tickets[tickets.length - 1].id : null;
 
   return NextResponse.json({ tickets, nextCursor });
+});
+
+export const POST = withAuth(async (req, { session }) => {
+  const body = await parseRequest(req, CreateTicketBody);
+
+  const ctx = await requireMembership(session.user.id);
+  assertCan(abilities, session, "ticket.create", ctx);
+  await assertAssigneeInOrg(body.assigneeId, ctx.orgId);
+
+  const ticket = await prisma.ticket.create({
+    data: {
+      orgId: ctx.orgId,
+      ownerId: ctx.userId,
+      assigneeId: body.assigneeId,
+      subject: body.subject,
+      body: body.body,
+    },
+  });
+  auditLog({
+    event: "ticket.created",
+    resourceId: ticket.id,
+    metadata: { orgId: ctx.orgId },
+  });
+
+  return NextResponse.json({ ticket }, { status: 201 });
 });
