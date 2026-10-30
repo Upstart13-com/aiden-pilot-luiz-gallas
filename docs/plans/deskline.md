@@ -104,6 +104,14 @@ reads `providerModels.<name>.model`.
 3. **The `(marketing)/layout.tsx` error is untouched.** Nothing in this build imports it, so
    it stays as found and stays in the count of 7.
 
+### 1.5 Deviations during build
+
+| #   | Phase | Deviation                                                                                                                                                                                                                                        |
+| --- | ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| DV1 | 2     | **Abilities are a role → action matrix** following the persona table ([§3.4](#34-abilities-srclibabilitiests)). Owners read every ticket and manage members, audit and usage, but do **not** create, update or close tickets or invoke AI (403). |
+| DV2 | 2     | **The starter's global `audit.read` / `audit.export` / `users.manage` rules are removed.** The starter `/admin` pages and admin API routes deny every request until Phase 7 replaces them.                                                       |
+| DV3 | 2     | **No org membership → 404, not 403.** Every denial outside role capability is a 404, with no exception ([§3.6](#36-membership-resolver-srclibmembershipts)).                                                                                     |
+
 ## 2. Dimension 1 — Domain & data model
 
 ### 2.1 Frozen resource family
@@ -335,7 +343,7 @@ export const PATCH = withAuth<RouteParams>(async (req, { session, params }) => {
   // 2. parseRequest        → 400 on an invalid body (Zod)
   const body = await parseRequest(req, UpdateTicketBody);
 
-  // 3. requireMembership   → 403 if the caller belongs to no org
+  // 3. requireMembership   → 404 if the caller belongs to no org
   const { orgId, role } = await requireMembership(session.user.id);
 
   // 4. assertCan           → 403 if this ROLE may not perform this VERB
@@ -362,11 +370,11 @@ Steps 5 and 6 together are the IDOR guard. Step 5 alone already makes a cross-te
 
 ### 3.3 Row visibility matrix
 
-| Role     | Reads                                        | Mutates                   |
-| -------- | -------------------------------------------- | ------------------------- |
-| `owner`  | Every ticket in their org                    | Every ticket in their org |
-| `agent`  | Only tickets they own **or** are assigned to | Same                      |
-| `viewer` | Every ticket in their org                    | **Nothing** (403)         |
+| Role     | Reads                                        | Mutates                |
+| -------- | -------------------------------------------- | ---------------------- |
+| `owner`  | Every ticket in their org                    | **Nothing** (403, DV1) |
+| `agent`  | Only tickets they own **or** are assigned to | Same                   |
+| `viewer` | Every ticket in their org                    | **Nothing** (403)      |
 
 Implemented once, in `src/lib/tickets.ts`, so no route re-derives it:
 
@@ -388,34 +396,45 @@ list query never loads another agent's rows into memory in the first place.
 
 ### 3.4 Abilities (`src/lib/abilities.ts`)
 
-All rules are **predicates** taking the resolved membership as the `resource` argument (D1).
-The existing `audit.read` / `users.manage` global rules stay for the starter's own admin pages
-until those are replaced; the new org-scoped rules are additive.
+Org rules are generated from a single role → action matrix (DV1). Routes pass the caller's
+resolved membership as the `resource` argument (D1); anything without a known `role` is denied.
 
 ```ts
-type RoleCtx = { role: MembershipRole };
+const ABILITY_MATRIX: Record<MembershipRole, readonly OrgAction[]> = {
+  owner: [
+    "ticket.read",
+    "org.members.manage",
+    "org.audit.read",
+    "org.usage.read",
+  ],
+  agent: [
+    "ticket.read",
+    "ticket.create",
+    "ticket.update",
+    "ticket.close",
+    "ai.invoke",
+  ],
+  viewer: ["ticket.read"],
+};
 
-const canWrite = (_s: SecuritySession, c?: RoleCtx) =>
-  c?.role === "owner" || c?.role === "agent";
+type Actor = Pick<MembershipContext, "role">;
 
-const isOwner = (_s: SecuritySession, c?: RoleCtx) => c?.role === "owner";
+function hasValidRole(resource: unknown): resource is Actor {
+  /* role is a matrix key */
+}
+
+function canPerform(actor: Actor, action: OrgAction): boolean {
+  return ABILITY_MATRIX[actor.role].includes(action);
+}
 
 export const abilities = defineAbilities({
-  rules: {
-    // Any member of the org may read; WHICH rows is decided by visibility (404), not here.
-    "ticket.read": (_s, c?: RoleCtx) => Boolean(c?.role),
-    "ticket.create": canWrite,
-    "ticket.update": canWrite,
-    "ticket.close": canWrite,
-
-    // The one AI gate. A viewer invoking AI is a capability failure → 403.
-    "ai.invoke": canWrite,
-
-    // Owner-only admin surface.
-    "org.members.manage": isOwner,
-    "org.audit.read": isOwner,
-    "org.usage.read": isOwner,
-  },
+  rules: Object.fromEntries(
+    ORG_ACTIONS.map((action) => [
+      action,
+      (_session, resource?: unknown) =>
+        hasValidRole(resource) && canPerform(resource, action),
+    ]),
+  ),
 });
 ```
 
@@ -465,7 +484,7 @@ from `OwnershipError` inside `aiden-security`. Gap **G1** is filed upstream in p
 
 ```ts
 import "server-only";
-import { AbilityError } from "@upstart13-com/aiden-security";
+import { OwnershipError } from "@upstart13-com/aiden-security";
 import { prisma } from "@/lib/prisma";
 
 export type MembershipContext = {
@@ -474,7 +493,7 @@ export type MembershipContext = {
   role: MembershipRole;
 };
 
-/** Resolve the caller's org + role. Throws AbilityError (403) if they belong to no org. */
+/** Resolve the caller's org + role. Throws OwnershipError (404) if they belong to no org. */
 export async function requireMembership(
   userId: string,
 ): Promise<MembershipContext> {
@@ -482,16 +501,14 @@ export async function requireMembership(
     where: { userId },
     select: { orgId: true, role: true },
   });
-  if (!m)
-    throw new AbilityError("org.member", "Not a member of any organization");
+  if (!m) throw new OwnershipError();
   return { userId, orgId: m.orgId, role: m.role };
 }
 ```
 
-A user with no membership gets **403**, not 404 — they are not probing for a resource id, so
-there is nothing to leak. This is the one deliberate exception to "deny as 404", and it is the
-single function that would change if the one-org-per-user scope boundary (**D4**,
-[§1.2](#12-scope-boundary--one-active-org-per-user-d4)) is ever lifted.
+A user with no membership gets **404**, like every other denial outside role capability
+(DV3). This is the single function that would change if the one-org-per-user scope boundary
+(**D4**, [§1.2](#12-scope-boundary--one-active-org-per-user-d4)) is ever lifted.
 
 ### 3.7 Routes
 
@@ -1111,7 +1128,7 @@ The assertion matrix — **every row asserts an exact status code**:
 | 17  | acme agent       | `GET /api/admin/usage`                                 | **403**                                                                                      |
 | 18  | **globex owner** | `PATCH /api/admin/members/{acme-member-id}`            | **404**                                                                                      |
 | 19  | acme owner       | `POST /api/tickets` with `{}`                          | **400** (Zod)                                                                                |
-| 20  | acme owner       | `POST /api/tickets` with `{ orgId: "globex-id", ... }` | 201 **and** the row's `orgId == acme` — the client-supplied `orgId` is ignored, not honoured |
+| 20  | acme agent       | `POST /api/tickets` with `{ orgId: "globex-id", ... }` | 201 **and** the row's `orgId == acme` — the client-supplied `orgId` is ignored, not honoured |
 | 21  | acme owner       | `GET /api/admin/audit`                                 | 200, zero entries whose actor is outside acme                                                |
 | 22  | acme owner       | `GET /api/admin/usage`                                 | 200, every row `orgId == acme`                                                               |
 | 23  | acme owner       | demote the last owner                                  | **400**, org retains an owner                                                                |
@@ -1162,24 +1179,24 @@ vertical slice — route, guards, audit event — and ends with its own smoke ro
 is not started until the previous one passes, so a perimeter regression is always attributable
 to the single route that introduced it.
 
-| Phase  | Work                                                                                                                                                                                                                                                                                   | Done when                                                                                                    |
-| ------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
-| **1**  | Fragments (`org`, `ticket`, `ai-usage`), `user.prisma` back-refs, merge, migrate, seed                                                                                                                                                                                                 | `db:seed` idempotent; 2 orgs, 6 users, 8 tickets present                                                     |
-| **2**  | `membership.ts`, `tickets.ts` guards, `abilities.ts` rules, `middleware.ts`                                                                                                                                                                                                            | Unit-level: every guard returns the right status                                                             |
-| **3a** | `GET /api/tickets` — list. Establishes the perimeter and `ticketVisibilityWhere` against seeded fixtures                                                                                                                                                                               | Smoke **1, 3**; an agent's query emits an `OR` on `ownerId`/`assigneeId` (verify the SQL, not just the rows) |
-| **3b** | `GET /api/tickets/[id]` — get. Carries the whole visibility matrix, so it is built before any write route                                                                                                                                                                              | Smoke **2, 4, 5, 8, 9, 10, 14** — all three roles, same-org and cross-tenant                                 |
-| **3c** | `POST /api/tickets` — create (no triage yet; defaults persist)                                                                                                                                                                                                                         | Smoke **12, 19, 20** — including the client-supplied `orgId` being ignored                                   |
-| **3d** | `PATCH /api/tickets/[id]` — update (no re-classify yet)                                                                                                                                                                                                                                | Smoke **6, 11** — cross-tenant 404 vs viewer 403, side by side                                               |
-| **3e** | `POST /api/tickets/[id]/close` — close + `closedAt`                                                                                                                                                                                                                                    | Smoke **7**; closing an already-closed ticket is idempotent                                                  |
-| **4**  | **Prereq:** `npm install @anthropic-ai/sdk`; repair `src/lib/ai.ts` to read `ai.models` and add `defaultAI()` ([§1.4](#14-pre-existing-breakage--out-of-scope)); set the real `ANTHROPIC_API_KEY` in `.env.local`. Then triage (`ai.complete({ responseSchema })`) wired into 3c + 3d. | `tsc` error count drops 7 → 1; triage fields populate; a provider failure does not fail the write            |
-| **5**  | `ai-usage.ts` sink + `withAICall`; register in `instrumentation.ts`                                                                                                                                                                                                                    | `ai_usage` rows carry `orgId` + `feature`                                                                    |
-| **6**  | Draft-reply SSE route                                                                                                                                                                                                                                                                  | Smoke **13, 24**; perimeter runs before the first token                                                      |
-| **7a** | `GET /api/admin/members` — the owner-only gate, proven once here                                                                                                                                                                                                                       | Smoke **15**                                                                                                 |
-| **7b** | `PATCH /api/admin/members/[id]` — role change + last-owner and self-demotion guards                                                                                                                                                                                                    | Smoke **18, 23**                                                                                             |
-| **7c** | `GET /api/admin/audit` — org-scoped read ([§5.3](#53-org-scoped-audit-trail))                                                                                                                                                                                                          | Smoke **16, 21**; the denial events logged by 3a–3e are visible                                              |
-| **7d** | `GET /api/admin/usage` — spend aggregation. Last, so phases 4–6 have produced real rows to aggregate                                                                                                                                                                                   | Smoke **17, 22**                                                                                             |
-| **8**  | **Prereq:** narrow the `check-design-system.sh` radius rule (**G6**). Then the **UI pre-flight** ([§6.1](#61-mandatory-pre-flight)), then all five pages + nav                                                                                                                         | Hook passes a DS-correct card; light/dark, three breakpoints, no hardcoded colors                            |
-| **9**  | Full smoke suite green, `/security-review`, `aiden upgrade --dry-run`, `aiden doctor`                                                                                                                                                                                                  | All green; PR opened via `/ship`                                                                             |
+| Phase         | Work                                                                                                                                                                                                                                                                                   | Done when                                                                                                    |
+| ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| **1**         | Fragments (`org`, `ticket`, `ai-usage`), `user.prisma` back-refs, merge, migrate, seed                                                                                                                                                                                                 | `db:seed` idempotent; 2 orgs, 6 users, 8 tickets present                                                     |
+| **2** ✅ Done | `membership.ts`, `tickets.ts` guards, `abilities.ts` rules, `middleware.ts`                                                                                                                                                                                                            | Unit-level: every guard returns the right status                                                             |
+| **3a**        | `GET /api/tickets` — list. Establishes the perimeter and `ticketVisibilityWhere` against seeded fixtures                                                                                                                                                                               | Smoke **1, 3**; an agent's query emits an `OR` on `ownerId`/`assigneeId` (verify the SQL, not just the rows) |
+| **3b**        | `GET /api/tickets/[id]` — get. Carries the whole visibility matrix, so it is built before any write route                                                                                                                                                                              | Smoke **2, 4, 5, 8, 9, 10, 14** — all three roles, same-org and cross-tenant                                 |
+| **3c**        | `POST /api/tickets` — create (no triage yet; defaults persist)                                                                                                                                                                                                                         | Smoke **12, 19, 20** — including the client-supplied `orgId` being ignored                                   |
+| **3d**        | `PATCH /api/tickets/[id]` — update (no re-classify yet)                                                                                                                                                                                                                                | Smoke **6, 11** — cross-tenant 404 vs viewer 403, side by side                                               |
+| **3e**        | `POST /api/tickets/[id]/close` — close + `closedAt`                                                                                                                                                                                                                                    | Smoke **7**; closing an already-closed ticket is idempotent                                                  |
+| **4**         | **Prereq:** `npm install @anthropic-ai/sdk`; repair `src/lib/ai.ts` to read `ai.models` and add `defaultAI()` ([§1.4](#14-pre-existing-breakage--out-of-scope)); set the real `ANTHROPIC_API_KEY` in `.env.local`. Then triage (`ai.complete({ responseSchema })`) wired into 3c + 3d. | `tsc` error count drops 7 → 1; triage fields populate; a provider failure does not fail the write            |
+| **5**         | `ai-usage.ts` sink + `withAICall`; register in `instrumentation.ts`                                                                                                                                                                                                                    | `ai_usage` rows carry `orgId` + `feature`                                                                    |
+| **6**         | Draft-reply SSE route                                                                                                                                                                                                                                                                  | Smoke **13, 24**; perimeter runs before the first token                                                      |
+| **7a**        | `GET /api/admin/members` — the owner-only gate, proven once here                                                                                                                                                                                                                       | Smoke **15**                                                                                                 |
+| **7b**        | `PATCH /api/admin/members/[id]` — role change + last-owner and self-demotion guards                                                                                                                                                                                                    | Smoke **18, 23**                                                                                             |
+| **7c**        | `GET /api/admin/audit` — org-scoped read ([§5.3](#53-org-scoped-audit-trail))                                                                                                                                                                                                          | Smoke **16, 21**; the denial events logged by 3a–3e are visible                                              |
+| **7d**        | `GET /api/admin/usage` — spend aggregation. Last, so phases 4–6 have produced real rows to aggregate                                                                                                                                                                                   | Smoke **17, 22**                                                                                             |
+| **8**         | **Prereq:** narrow the `check-design-system.sh` radius rule (**G6**). Then the **UI pre-flight** ([§6.1](#61-mandatory-pre-flight)), then all five pages + nav                                                                                                                         | Hook passes a DS-correct card; light/dark, three breakpoints, no hardcoded colors                            |
+| **9**         | Full smoke suite green, `/security-review`, `aiden upgrade --dry-run`, `aiden doctor`                                                                                                                                                                                                  | All green; PR opened via `/ship`                                                                             |
 
 Every sub-step from **3a** through **7d** ends with `npm run lint && npx tsc --noEmit`, and
 re-runs **every** smoke row passed so far — not just its own. The suite is cumulative, so a
