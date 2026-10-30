@@ -25,3 +25,7 @@ export const UpdateTicketBody = z
     assigneeId: z.cuid().nullable().optional(),
   })
   .refine((v) => Object.keys(v).length > 0, "At least one field is required");
+
+export const DraftBody = z.object({
+  tone: z.enum(["neutral", "apologetic", "concise"]).default("neutral"),
+});

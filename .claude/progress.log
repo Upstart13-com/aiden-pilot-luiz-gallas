@@ -22,3 +22,4 @@
 [2026-10-30 11:25] completed feat(tickets): Phase 3c+3d — POST /api/tickets and PATCH /api/tickets/[id]; smoke rows 6, 11, 12, 19, 20 pass with earlier rows
 [2026-10-30 11:32] completed feat(tickets): Phase 3e — POST /api/tickets/[id]/close, idempotent; smoke row 7 (now globex agent, per DV1) passes with all earlier rows
 [2026-10-30 11:50] completed feat(ai): Phases 4+5 — defaultAI + ai.models, triage on create/update (never fails the write), ai-usage sink with org/feature context; installed @anthropic-ai/sdk and pino-pretty (dev). Live triage untested: ANTHROPIC_API_KEY not set
+[2026-10-30 12:00] completed feat(ai): Phase 6 — POST /api/tickets/[id]/draft SSE route with 10/min rate limit; smoke rows 13 and 24 pass with all earlier rows. Live streaming untested: ANTHROPIC_API_KEY not set (draft returns 500 without it)
