@@ -20,3 +20,4 @@
 [2026-10-30 10:02] completed feat(security): Phase 2 — membership resolver, ticket visibility guards, org-scoped ability rules, security-headers middleware
 [2026-10-30 10:37] completed feat(tickets): Phase 3a+3b — GET /api/tickets and GET /api/tickets/[id]; smoke rows 1-5, 8-10, 14 pass
 [2026-10-30 11:25] completed feat(tickets): Phase 3c+3d — POST /api/tickets and PATCH /api/tickets/[id]; smoke rows 6, 11, 12, 19, 20 pass with earlier rows
+[2026-10-30 11:32] completed feat(tickets): Phase 3e — POST /api/tickets/[id]/close, idempotent; smoke row 7 (now globex agent, per DV1) passes with all earlier rows
